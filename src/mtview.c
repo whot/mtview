@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <grail-touch.h>
+#include <math.h>
 
 #define XMARG 64
 #define YMARG 64
@@ -14,6 +15,11 @@ struct windata {
 	int screen, width, height, lastid;
 	unsigned long white, black, color[DIM_TOUCH];
 };
+
+static inline float max(float a, float b)
+{
+	return b > a ? b : a;
+}
 
 static unsigned long new_color()
 {
@@ -29,15 +35,27 @@ static void clear_screen(struct windata *w)
 static void output_touch(struct touch_dev *dev, struct windata *w,
 			 const struct touch *t)
 {
+	float a = touch_angle(dev, t->orientation);
+	float ac = fabs(cos(a));
+	float as = fabs(sin(a));
+	float mx = max(t->touch_minor * ac, t->touch_major * as);
+	float my = max(t->touch_major * ac, t->touch_minor * as);
+	float ux = t->x - 0.5 * mx;
+	float uy = t->y - 0.5 * my;
+	float vx = t->x + 0.5 * mx;
+	float vy = t->y + 0.5 * my;
+
 	float x1 = dev->caps.min_x, y1 = dev->caps.min_y;
 	float x2 = dev->caps.max_x, y2 = dev->caps.max_y;
-	int x = (t->x - x1) / (x2 - x1) * w->width;
-	int y = (t->y - y1) / (y2 - y1) * w->height;
-	int d = t->touch_major / (x2 - x1) * w->width * WSCALE;
+	float dx = x2 - x1, dy = y2 - y1;
+	float px = (ux - x1) / dx * w->width;
+	float py = (uy - y1) / dy * w->height;
+	float qx = (vx - x1) / dx * w->width;
+	float qy = (vy - y1) / dy * w->height;
 	if (t->id > w->lastid)
 		w->color[t->slot] = new_color();
 	XSetForeground(w->dsp, w->gc, w->color[t->slot]);
-	XFillArc(w->dsp, w->win, w->gc, x, y, d, d, 0, 360 * 64);
+	XFillArc(w->dsp, w->win, w->gc, px, py, qx - px, qy - py, 0, 360 * 64);
 }
 
 static void tp_event(struct touch_dev *dev,
@@ -69,13 +87,20 @@ static void event_loop(struct touch_dev *dev, int fd, struct windata *w)
 	dev->priv = w;
 	w->lastid = -1;
 
-	XSelectInput(w->dsp, w->win, ButtonPressMask | ButtonReleaseMask);
+	XSelectInput(w->dsp, w->win, ButtonPress | ButtonRelease);
+	clear_screen(w);
+	XFlush(w->dsp);
+
 	while (1) {
-		XNextEvent(w->dsp, &ev);
-		clear_screen(w);
-		XNextEvent(w->dsp, &ev);
-		while (!touch_dev_idle(dev, fd, 1000))
+		if (XEventsQueued(w->dsp, QueuedAlready)) {
+			XNextEvent(w->dsp, &ev);
+			if (ev.type == ButtonRelease)
+				break;
+		}
+		if(!touch_dev_idle(dev, fd, 100)) {
 			touch_dev_pull(dev, fd);
+			XFlush(w->dsp);
+		}
 	}
 }
 
