@@ -2,18 +2,24 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <grail-touch.h>
+#include <string.h>
 #include <math.h>
 
 #define XMARG 64
 #define YMARG 64
 #define WSCALE 0.5
+#define FLUSH_MS 10
+#define DEF_FRAC 0.15
 
 struct windata {
 	Display *dsp;
 	Window root, win;
 	GC gc;
-	int screen, width, height, lastid;
-	unsigned long white, black, color[DIM_TOUCH];
+	int screen, width, height;
+	unsigned long white, black;
+	unsigned long color[DIM_TOUCH];
+	int id[DIM_TOUCH];
+	touch_time_t last_flush;
 };
 
 static inline float max(float a, float b)
@@ -21,7 +27,7 @@ static inline float max(float a, float b)
 	return b > a ? b : a;
 }
 
-static unsigned long new_color()
+static unsigned long new_color(struct windata *w)
 {
 	return lrand48();
 }
@@ -30,32 +36,55 @@ static void clear_screen(struct windata *w)
 {
 	XSetForeground(w->dsp, w->gc, w->black);
 	XFillRectangle(w->dsp, w->win, w->gc, 0, 0, w->width, w->height);
+	XFlush(w->dsp);
 }
 
 static void output_touch(struct touch_dev *dev, struct windata *w,
 			 const struct touch *t)
 {
-	float a = touch_angle(dev, t->orientation);
-	float ac = fabs(cos(a));
-	float as = fabs(sin(a));
-	float mx = max(t->touch_minor * ac, t->touch_major * as);
-	float my = max(t->touch_major * ac, t->touch_minor * as);
+	float x1 = dev->caps.min_x, y1 = dev->caps.min_y;
+	float x2 = dev->caps.max_x, y2 = dev->caps.max_y;
+	float dx = x2 - x1, dy = y2 - y1;
+	float major = 0, minor = 0, angle = 0;
+
+	if (t->pressure > 0) {
+		float p = DEF_FRAC / dev->caps.max_press;
+		major = t->pressure * p * dx;
+		minor = t->pressure * p * dx;
+		angle = 0;
+	}
+	if (t->touch_major > 0 || t->touch_minor > 0) {
+		major = t->touch_major;
+		minor = t->touch_minor;
+		angle = touch_angle(dev, t->orientation);
+	}
+
+	float ac = fabs(cos(angle));
+	float as = fabs(sin(angle));
+	float mx = max(minor * ac, major * as);
+	float my = max(major * ac, minor * as);
 	float ux = t->x - 0.5 * mx;
 	float uy = t->y - 0.5 * my;
 	float vx = t->x + 0.5 * mx;
 	float vy = t->y + 0.5 * my;
 
-	float x1 = dev->caps.min_x, y1 = dev->caps.min_y;
-	float x2 = dev->caps.max_x, y2 = dev->caps.max_y;
-	float dx = x2 - x1, dy = y2 - y1;
 	float px = (ux - x1) / dx * w->width;
 	float py = (uy - y1) / dy * w->height;
 	float qx = (vx - x1) / dx * w->width;
 	float qy = (vy - y1) / dy * w->height;
-	if (t->id > w->lastid)
-		w->color[t->slot] = new_color();
+
+	if (w->id[t->slot] != t->id) {
+		w->id[t->slot] = t->id;
+		w->color[t->slot] = new_color(w);
+	}
+
 	XSetForeground(w->dsp, w->gc, w->color[t->slot]);
 	XFillArc(w->dsp, w->win, w->gc, px, py, qx - px, qy - py, 0, 360 * 64);
+
+	if (dev->frame.time - w->last_flush > FLUSH_MS) {
+		XFlush(w->dsp);
+		w->last_flush = dev->frame.time;
+	}
 }
 
 static void tp_event(struct touch_dev *dev,
@@ -68,14 +97,9 @@ static void tp_sync(struct touch_dev *dev,
 {
 	struct windata *w = dev->priv;
 	struct touch_frame *frame = &dev->frame;
-	int i, lastid = 0;
-	for (i = 0; i < frame->nactive; i++) {
-		const struct touch *t = frame->active[i];
-		output_touch(dev, w, t);
-		if (t->id > lastid)
-			lastid = t->id;
-	}
-	w->lastid = lastid;
+	int i;
+	for (i = 0; i < frame->nactive; i++)
+		output_touch(dev, w, frame->active[i]);
 }
 
 static void event_loop(struct touch_dev *dev, int fd, struct windata *w)
@@ -85,21 +109,18 @@ static void event_loop(struct touch_dev *dev, int fd, struct windata *w)
 	dev->event = tp_event;
 	dev->sync = tp_sync;
 	dev->priv = w;
-	w->lastid = -1;
 
-	XSelectInput(w->dsp, w->win, ButtonPress | ButtonRelease);
+	XSelectInput(w->dsp, w->win,
+		     ButtonPressMask | ButtonReleaseMask | ExposureMask);
+
 	clear_screen(w);
-	XFlush(w->dsp);
-
 	while (1) {
+		while(!touch_dev_idle(dev, fd, 1000))
+			touch_dev_pull(dev, fd);
 		if (XEventsQueued(w->dsp, QueuedAlready)) {
 			XNextEvent(w->dsp, &ev);
 			if (ev.type == ButtonRelease)
 				break;
-		}
-		if(!touch_dev_idle(dev, fd, 100)) {
-			touch_dev_pull(dev, fd);
-			XFlush(w->dsp);
 		}
 	}
 }
@@ -107,6 +128,10 @@ static void event_loop(struct touch_dev *dev, int fd, struct windata *w)
 static void run_window(struct touch_dev *dev, int fd)
 {
 	struct windata w;
+	int i;
+	memset(&w, 0, sizeof(w));
+	for (i = 0; i < DIM_TOUCH; i++)
+		w.id[i] = -1;
 
 	w.dsp = XOpenDisplay(NULL);
 	if (!w.dsp)
