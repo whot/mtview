@@ -36,7 +36,6 @@ static void clear_screen(struct windata *w)
 {
 	XSetForeground(w->dsp, w->gc, w->black);
 	XFillRectangle(w->dsp, w->win, w->gc, 0, 0, w->width, w->height);
-	XFlush(w->dsp);
 }
 
 static void output_touch(struct touch_dev *dev, struct windata *w,
@@ -111,16 +110,17 @@ static void event_loop(struct touch_dev *dev, int fd, struct windata *w)
 	dev->priv = w;
 
 	XSelectInput(w->dsp, w->win,
-		     ButtonPressMask | ButtonReleaseMask | ExposureMask);
+		     ButtonPressMask | ButtonReleaseMask |
+		     ExposureMask | StructureNotifyMask);
 
 	clear_screen(w);
 	while (1) {
-		while(!touch_dev_idle(dev, fd, 1000))
+		XFlush(w->dsp);
+		while(!touch_dev_idle(dev, fd, 100))
 			touch_dev_pull(dev, fd);
 		if (XEventsQueued(w->dsp, QueuedAlready)) {
 			XNextEvent(w->dsp, &ev);
-			if (ev.type == ButtonRelease)
-				break;
+			break;
 		}
 	}
 }
