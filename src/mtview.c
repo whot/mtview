@@ -5,8 +5,8 @@
 #include <string.h>
 #include <math.h>
 
-#define XMARG 64
-#define YMARG 64
+#define XMARG 16
+#define YMARG 16
 #define WSCALE 0.5
 #define FLUSH_MS 10
 #define DEF_FRAC 0.15
@@ -29,7 +29,7 @@ static inline float max(float a, float b)
 
 static unsigned long new_color(struct windata *w)
 {
-	return lrand48();
+	return lrand48() & 0xffffff;
 }
 
 static void clear_screen(struct windata *w)
@@ -115,12 +115,10 @@ static void event_loop(struct touch_dev *dev, int fd, struct windata *w)
 
 	clear_screen(w);
 	while (1) {
-		XFlush(w->dsp);
-		while(!touch_dev_idle(dev, fd, 100))
+		if(!touch_dev_idle(dev, fd, 100))
 			touch_dev_pull(dev, fd);
-		if (XEventsQueued(w->dsp, QueuedAlready)) {
+		while (XPending(w->dsp)) {
 			XNextEvent(w->dsp, &ev);
-			break;
 		}
 	}
 }
