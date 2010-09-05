@@ -55,6 +55,8 @@ static void output_touch(struct touch_dev *dev, struct windata *w,
 	if (t->touch_major > 0 || t->touch_minor > 0) {
 		major = t->touch_major;
 		minor = t->touch_minor;
+		if (major && !minor)
+			minor = major;
 		angle = touch_angle(dev, t->orientation);
 	}
 
