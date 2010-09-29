@@ -7,9 +7,9 @@
 
 #define XMARG 16
 #define YMARG 16
-#define WSCALE 0.5
 #define FLUSH_MS 10
 #define DEF_FRAC 0.15
+#define DEF_WIDTH 0.05
 
 struct windata {
 	Display *dsp;
@@ -58,6 +58,10 @@ static void output_touch(struct touch_dev *dev, struct windata *w,
 		if (major && !minor)
 			minor = major;
 		angle = touch_angle(dev, t->orientation);
+	}
+	if (major == 0 && minor == 0) {
+		major = DEF_WIDTH * dy;
+		minor = DEF_WIDTH * dx;
 	}
 
 	float ac = fabs(cos(angle));
