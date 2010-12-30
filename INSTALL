@@ -1,0 +1,25 @@
+mtview - Multitouch Viewer
+
+To build, you need to have the autoconf, libtool, xorg-dev,
+libutouch-frame-dev, libutouch-evemu-dev and mtdev-dev packages
+installed. Then, do
+
+   ./autogen.sh
+   ./configure
+   make
+
+To view the touch properties of an MT device at /dev/input/eventX, do
+
+   sudo ./tools/mtview /dev/input/eventX
+
+You should be able to see touch events in the window.
+
+To install mtview, do
+
+   sudo make install
+
+By default, mtview installs to /usr/local. To change, use the --prefix
+configure option.
+
+Enjoy,
+Henrik

@@ -1,0 +1,9 @@
+mtview - Multitouch Viewer (GPLv3 license)
+
+The mtview tool shows a graphical view of a kernel multitouch device.
+
+http://bitmath.org/code/mtview/
+Please send patches to: patches@bitmath.org
+
+---
+Copyright (C) 2010 Henrik Rydberg <rydberg@euromail.se>
