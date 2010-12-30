@@ -5,7 +5,7 @@ TARG	= $(addprefix bin/,$(TARGETS))
 TOBJ	= $(addprefix obj/,$(addsuffix .o,$(SOURCES)))
 
 INCLUDE =
-LIBS	= -lX11 -lutouch-grail -lmtdev
+LIBS	= -lX11 -lutouch-frame -lutouch-evemu -lmtdev -lm
 
 COMP	= gcc -O3 $(INCLUDE) -c $< -o $@
 LINK	= gcc $< $(LIBS) -o $@

@@ -1,15 +1,16 @@
 #include <X11/Xlib.h>
 #include <stdio.h>
 #include <fcntl.h>
-#include <grail-touch.h>
+#include <utouch/frame-mtdev.h>
 #include <string.h>
 #include <math.h>
 
 #define XMARG 16
 #define YMARG 16
-#define FLUSH_MS 10
 #define DEF_FRAC 0.15
 #define DEF_WIDTH 0.05
+
+#define DIM_TOUCH 32
 
 struct windata {
 	Display *dsp;
@@ -19,7 +20,6 @@ struct windata {
 	unsigned long white, black;
 	unsigned long color[DIM_TOUCH];
 	int id[DIM_TOUCH];
-	touch_time_t last_flush;
 };
 
 static inline float max(float a, float b)
@@ -38,26 +38,26 @@ static void clear_screen(struct windata *w)
 	XFillRectangle(w->dsp, w->win, w->gc, 0, 0, w->width, w->height);
 }
 
-static void output_touch(struct touch_dev *dev, struct windata *w,
-			 const struct touch *t)
+static void output_touch(utouch_frame_handle fh, struct windata *w,
+			 const struct utouch_contact *t)
 {
-	float x1 = dev->caps.min_x, y1 = dev->caps.min_y;
-	float x2 = dev->caps.max_x, y2 = dev->caps.max_y;
+	const struct utouch_surface *s = utouch_frame_get_surface(fh);
+
+	float x1 = s->min_x, y1 = s->min_y;
+	float x2 = s->max_x, y2 = s->max_y;
 	float dx = x2 - x1, dy = y2 - y1;
 	float major = 0, minor = 0, angle = 0;
 
-	if (t->pressure > 0) {
-		float p = DEF_FRAC / dev->caps.max_press;
+	if (s->use_pressure) {
+		float p = DEF_FRAC / s->max_pressure;
 		major = t->pressure * p * dx;
 		minor = t->pressure * p * dx;
 		angle = 0;
 	}
-	if (t->touch_major > 0 || t->touch_minor > 0) {
+	if (s->use_touch_major) {
 		major = t->touch_major;
 		minor = t->touch_minor;
-		if (major && !minor)
-			minor = major;
-		angle = touch_angle(dev, t->orientation);
+		angle = t->orientation;
 	}
 	if (major == 0 && minor == 0) {
 		major = DEF_WIDTH * dy;
@@ -85,35 +85,26 @@ static void output_touch(struct touch_dev *dev, struct windata *w,
 
 	XSetForeground(w->dsp, w->gc, w->color[t->slot]);
 	XFillArc(w->dsp, w->win, w->gc, px, py, qx - px, qy - py, 0, 360 * 64);
-
-	if (dev->frame.time - w->last_flush > FLUSH_MS) {
-		XFlush(w->dsp);
-		w->last_flush = dev->frame.time;
-	}
+	XFlush(w->dsp);
 }
 
-static void tp_event(struct touch_dev *dev,
-		     const struct input_event *ev)
+static void report_frame(utouch_frame_handle fh,
+			 const struct utouch_frame *frame,
+			 struct windata *w)
 {
-}
-
-static void tp_sync(struct touch_dev *dev,
-		    const struct input_event *syn)
-{
-	struct windata *w = dev->priv;
-	struct touch_frame *frame = &dev->frame;
 	int i;
-	for (i = 0; i < frame->nactive; i++)
-		output_touch(dev, w, frame->active[i]);
+
+	for (i = 0; i < frame->num_active; i++)
+		output_touch(fh, w, frame->active[i]);
 }
 
-static void event_loop(struct touch_dev *dev, int fd, struct windata *w)
+static void event_loop(utouch_frame_handle fh,
+		       struct mtdev *dev, int fd,
+		       struct windata *w)
 {
-	XEvent ev;
-
-	dev->event = tp_event;
-	dev->sync = tp_sync;
-	dev->priv = w;
+	const struct utouch_frame *frame;
+	struct input_event iev;
+	XEvent xev;
 
 	XSelectInput(w->dsp, w->win,
 		     ButtonPressMask | ButtonReleaseMask |
@@ -121,15 +112,20 @@ static void event_loop(struct touch_dev *dev, int fd, struct windata *w)
 
 	clear_screen(w);
 	while (1) {
-		if(!touch_dev_idle(dev, fd, 100))
-			touch_dev_pull(dev, fd);
+		while (!mtdev_idle(dev, fd, 100)) {
+			while (mtdev_get(dev, fd, &iev, 1) > 0) {
+				frame = utouch_frame_pump_mtdev(fh, &iev);
+				if (frame)
+					report_frame(fh, frame, w);
+			}
+		}
 		while (XPending(w->dsp)) {
-			XNextEvent(w->dsp, &ev);
+			XNextEvent(w->dsp, &xev);
 		}
 	}
 }
 
-static void run_window(struct touch_dev *dev, int fd)
+static void run_window(utouch_frame_handle fh, struct mtdev *dev, int fd)
 {
 	struct windata w;
 	int i;
@@ -165,7 +161,7 @@ static void run_window(struct touch_dev *dev, int fd)
 
 	w.gc = XCreateGC(w.dsp, w.win, 0, NULL);
 
-	event_loop(dev, fd, &w);
+	event_loop(fh, dev, fd, &w);
 
 	XDestroyWindow(w.dsp, w.win);
 	XCloseDisplay(w.dsp);
@@ -173,12 +169,16 @@ static void run_window(struct touch_dev *dev, int fd)
 
 int main(int argc, char *argv[])
 {
-	struct touch_dev dev;
+	struct evemu_device *evemu;
+	struct mtdev *mtdev;
+	utouch_frame_handle fh;
 	int fd;
+
 	if (argc < 2) {
 		fprintf(stderr, "Usage: %s <device>\n", argv[0]);
 		return -1;
 	}
+
 	fd = open(argv[1], O_RDONLY | O_NONBLOCK);
 	if (fd < 0) {
 		fprintf(stderr, "error: could not open device\n");
@@ -188,13 +188,35 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "error: could not grab the device\n");
 		return -1;
 	}
-	if (touch_dev_open(&dev, fd)) {
-		fprintf(stderr, "error: could not open touch device\n");
+
+	evemu = evemu_new(0);
+	if (!evemu || evemu_extract(evemu, fd)) {
+		fprintf(stderr, "error: could not describe device\n");
 		return -1;
 	}
-	run_window(&dev, fd);
-	touch_dev_close(&dev, fd);
+	if (!utouch_frame_is_supported_mtdev(evemu)) {
+		fprintf(stderr, "error: unsupported device\n");
+		return -1;
+	}
+	mtdev = mtdev_new_open(fd);
+	if (!mtdev) {
+		fprintf(stderr, "error: could not open mtdev\n");
+		return -1;
+	}
+	fh = utouch_frame_new_engine(100, 32, 100);
+	if (!fh || utouch_frame_init_mtdev(fh, evemu)) {
+		fprintf(stderr, "error: could not init frame\n");
+		return -1;
+	}
+
+	run_window(fh, mtdev, fd);
+
+	utouch_frame_delete_engine(fh);
+	mtdev_close_delete(mtdev);
+	evemu_delete(evemu);
+
 	ioctl(fd, EVIOCGRAB, 0);
 	close(fd);
+
 	return 0;
 }
