@@ -1,7 +1,7 @@
 # Initialize Autoconf
 AC_PREREQ([2.60])
 AC_INIT([Multitouch Viewer],
-        [1.1.0],
+        [1.1.1],
         [],
         [mtview])
 AC_CONFIG_SRCDIR([Makefile.am])
