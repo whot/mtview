@@ -27,6 +27,15 @@ PKG_CHECK_MODULES([EVEMU], [utouch-evemu >= 1.0])
 PKG_CHECK_MODULES([FRAME], [utouch-frame >= 1.0])
 PKG_CHECK_MODULES([X11], [x11])
 
+AC_ARG_WITH([xi], AS_HELP_STRING([--with-xi], [Build with XI2.1 support]))
+AM_CONDITIONAL([HAVE_XI], [test "x$with_xi" != "x"])
+
+AS_IF([test "x$with_xi" = "xyes"], [
+	PKG_CHECK_MODULES(XINPUT, x11 xext [xi >= 1.2] [inputproto >= 1.5])
+	PKG_CHECK_MODULES(XI2_1, [xi >= 1.4.99.1] [inputproto >= 2.0.99.1])
+	AC_DEFINE([HAVE_XI], [1], [XI2.1 support])
+])
+
 AC_CONFIG_FILES([Makefile
                  tools/Makefile
                  mtview.pc])
