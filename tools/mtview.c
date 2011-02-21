@@ -284,12 +284,12 @@ static void run_window_xi2(struct windata *w,
 	XSelectInput(w->dsp, XDefaultRootWindow(w->dsp), StructureNotifyMask);
 
 	mask.deviceid = dev->deviceid;
-	mask.mask_len = XIMaskLen(XI_TouchMotion);
+	mask.mask_len = XIMaskLen(XI_LASTEVENT);
 	mask.mask = calloc(mask.mask_len, sizeof(char));
 
 	XISetMask(mask.mask, XI_PropertyEvent);
 	XISetMask(mask.mask, XI_TouchBegin);
-	XISetMask(mask.mask, XI_TouchMotion);
+	XISetMask(mask.mask, XI_TouchUpdate);
 	XISetMask(mask.mask, XI_TouchEnd);
 	XISelectEvents(w->dsp, w->win, &mask, 1);
 
