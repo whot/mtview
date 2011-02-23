@@ -24,7 +24,7 @@ AC_PROG_INSTALL
 
 PKG_CHECK_MODULES([MTDEV], [mtdev >= 1.1])
 PKG_CHECK_MODULES([EVEMU], [utouch-evemu >= 1.0])
-PKG_CHECK_MODULES([FRAME], [utouch-frame >= 1.0])
+PKG_CHECK_MODULES([FRAME], [utouch-frame >= 1.1])
 PKG_CHECK_MODULES([X11], [x11])
 
 AC_ARG_WITH([xi], AS_HELP_STRING([--with-xi], [Build with XI2.1 support]))
