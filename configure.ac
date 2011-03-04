@@ -36,6 +36,5 @@ AS_IF([test "x$with_xi" = "xyes"], [
 ])
 
 AC_CONFIG_FILES([Makefile
-                 tools/Makefile
-                 mtview.pc])
+                 tools/Makefile])
 AC_OUTPUT
