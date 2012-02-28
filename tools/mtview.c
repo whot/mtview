@@ -259,11 +259,6 @@ static void set_screen_size_mtdev(utouch_frame_handle fh,
 			expose(w, 0, 0, w->width, w->height);
 		}
 	}
-
-	fprintf(stderr, "map: %f %f %f %f %f %f\n",
-		w->off_x, w->off_y,
-		s->mapped_min_x, s->mapped_min_y,
-		s->mapped_max_x, s->mapped_max_y);
 }
 
 static void run_window_mtdev(utouch_frame_handle fh, struct mtdev *dev, int fd)
