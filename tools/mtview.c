@@ -146,7 +146,10 @@ static int init_window(struct windata *w)
 	w->black = BlackPixel(w->dsp, w->screen);
 
 	w->win = XCreateSimpleWindow(w->dsp, XDefaultRootWindow(w->dsp),
-				     0, 0, 200, 200, 0, w->black, w->white);
+				     0, 0,
+				     DisplayWidth(w->dsp, w->screen),
+				     DisplayHeight(w->dsp, w->screen),
+				     0, w->black, w->white);
 	w->gc = DefaultGC(w->dsp, w->screen);
 
 	XSelectInput(w->dsp, w->win, StructureNotifyMask);
