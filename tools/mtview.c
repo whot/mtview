@@ -36,6 +36,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <math.h>
+#include <cairo.h>
+#include <cairo-xlib.h>
 
 #define DEF_FRAC 0.15
 #define DEF_WIDTH 0.05
@@ -44,15 +46,29 @@
 
 static int opcode;
 
+struct color {
+	float r, g, b;
+};
+
 struct windata {
 	Display *dsp;
 	Window win;
 	GC gc;
+	Visual *visual;
 	int screen;
 	float off_x, off_y;
+	int width, height; /* of window */
 	unsigned long white, black;
-	unsigned long color[DIM_TOUCH];
+	struct color color[DIM_TOUCH];
 	int id[DIM_TOUCH];
+
+	/* buffer */
+	cairo_t *cr;
+	cairo_surface_t *surface;
+
+	/* window */
+	cairo_t *cr_win;
+	cairo_surface_t *surface_win;
 };
 
 static inline float max(float a, float b)
@@ -60,9 +76,20 @@ static inline float max(float a, float b)
 	return b > a ? b : a;
 }
 
-static unsigned long new_color(struct windata *w)
+static struct color new_color(struct windata *w)
 {
-	return lrand48() & 0xffffff;
+	struct color c;
+
+	c.r = 1.0 * rand()/RAND_MAX;
+	c.g = 1.0 * rand()/RAND_MAX;
+	c.b = 1.0 * rand()/RAND_MAX;
+	return c;
+}
+
+static void expose(struct windata *w)
+{
+	cairo_set_source_surface(w->cr_win, w->surface, 0, 0);
+	cairo_paint(w->cr_win);
 }
 
 static void clear_screen(utouch_frame_handle fh, struct windata *w)
@@ -71,8 +98,12 @@ static void clear_screen(utouch_frame_handle fh, struct windata *w)
 	int width = s->mapped_max_x - s->mapped_min_x;
 	int height = s->mapped_max_y - s->mapped_min_y;
 
-	XSetForeground(w->dsp, w->gc, w->black);
-	XFillRectangle(w->dsp, w->win, w->gc, 0, 0, width, height);
+	cairo_set_line_width(w->cr, 1);
+	cairo_set_source_rgb(w->cr, 1, 1, 1);
+	cairo_rectangle(w->cr, 0, 0, width, height);
+	cairo_fill(w->cr);
+
+	expose(w);
 }
 
 static void output_touch(utouch_frame_handle fh, struct windata *w,
@@ -83,6 +114,7 @@ static void output_touch(utouch_frame_handle fh, struct windata *w,
 	float dy = s->mapped_max_y - s->mapped_min_y;
 	float x = t->x - w->off_x, y = t->y - w->off_y;
 	float major = 0, minor = 0, angle = 0;
+	const int radius = 30;
 
 	if (s->use_pressure) {
 		major = DEF_FRAC * t->pressure * dy;
@@ -109,11 +141,17 @@ static void output_touch(utouch_frame_handle fh, struct windata *w,
 		w->color[t->slot] = new_color(w);
 	}
 
-	XSetForeground(w->dsp, w->gc, w->color[t->slot]);
+	cairo_save(w->cr);
+	cairo_set_source_rgb(w->cr,
+			     w->color[t->slot].r,
+			     w->color[t->slot].g,
+			     w->color[t->slot].b);
+	cairo_move_to(w->cr, x - mx / 2 + radius, y - my / 2 + radius);
+	cairo_arc(w->cr, x - mx / 2, y - my / 2, radius, 0, 2 * M_PI);
+	cairo_fill(w->cr);
+	cairo_restore(w->cr);
 
-	XFillArc(w->dsp, w->win, w->gc, x - mx / 2, y - my / 2,
-		 mx, my, 0, 360 * 64);
-	XFlush(w->dsp);
+	expose(w);
 }
 
 static void report_frame(utouch_frame_handle fh,
@@ -145,12 +183,30 @@ static int init_window(struct windata *w)
 	w->white = WhitePixel(w->dsp, w->screen);
 	w->black = BlackPixel(w->dsp, w->screen);
 
+	w->width = DisplayWidth(w->dsp, w->screen);
+	w->height = DisplayHeight(w->dsp, w->screen);
 	w->win = XCreateSimpleWindow(w->dsp, XDefaultRootWindow(w->dsp),
-				     0, 0,
-				     DisplayWidth(w->dsp, w->screen),
-				     DisplayHeight(w->dsp, w->screen),
+				     0, 0, w->width, w->height,
 				     0, w->black, w->white);
 	w->gc = DefaultGC(w->dsp, w->screen);
+	w->visual = DefaultVisual(w->dsp, w->screen);
+
+
+	w->surface_win = cairo_xlib_surface_create(w->dsp, w->win, w->visual,
+						   w->width, w->height);
+	w->cr_win = cairo_create(w->surface_win);
+
+	w->surface = cairo_surface_create_similar(w->surface_win,
+						  CAIRO_CONTENT_COLOR_ALPHA,
+						  w->width, w->height);
+	w->cr = cairo_create(w->surface);
+
+	cairo_set_line_width(w->cr, 1);
+	cairo_set_source_rgb(w->cr, 1, 1, 1);
+	cairo_rectangle(w->cr, 0, 0, w->width, w->height);
+	cairo_fill(w->cr);
+
+	expose(w);
 
 	XSelectInput(w->dsp, w->win, StructureNotifyMask);
 	XMapWindow(w->dsp, w->win);
@@ -161,6 +217,11 @@ static int init_window(struct windata *w)
 
 static void term_window(struct windata *w)
 {
+	cairo_destroy(w->cr);
+	cairo_destroy(w->cr_win);
+	cairo_surface_destroy(w->surface);
+	cairo_surface_destroy(w->surface_win);
+
 	XDestroyWindow(w->dsp, w->win);
 	XCloseDisplay(w->dsp);
 }

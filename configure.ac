@@ -28,6 +28,7 @@ PKG_CHECK_MODULES([MTDEV], [mtdev >= 1.1])
 PKG_CHECK_MODULES([EVEMU], [utouch-evemu >= 1.0])
 PKG_CHECK_MODULES([FRAME], [utouch-frame >= 1.1])
 PKG_CHECK_MODULES([X11], [x11])
+PKG_CHECK_MODULES([CAIRO], [cairo])
 
 
 PKG_CHECK_MODULES(XINPUT, x11 xext [xi >= 1.5.99.1] [inputproto >= 2.1.99.6],
