@@ -365,7 +365,7 @@ static int run_xi2(int id)
 #else
 static int run_xi2(int id)
 {
-	fprintf(stderr, "XI2.1 not supported\n");
+	fprintf(stderr, "XI2.2 not supported\n");
 	return 0;
 }
 #endif
