@@ -86,10 +86,11 @@ static struct color new_color(struct windata *w)
 	return c;
 }
 
-static void expose(struct windata *w)
+static void expose(struct windata *win, int x, int y, int w, int h)
 {
-	cairo_set_source_surface(w->cr_win, w->surface, 0, 0);
-	cairo_paint(w->cr_win);
+	cairo_set_source_surface(win->cr_win, win->surface, 0, 0);
+	cairo_rectangle(win->cr_win, x, y, w, h);
+	cairo_fill(win->cr_win);
 }
 
 static void clear_screen(utouch_frame_handle fh, struct windata *w)
@@ -103,7 +104,7 @@ static void clear_screen(utouch_frame_handle fh, struct windata *w)
 	cairo_rectangle(w->cr, 0, 0, width, height);
 	cairo_fill(w->cr);
 
-	expose(w);
+	expose(w, 0, 0, width, height);
 }
 
 static void output_touch(utouch_frame_handle fh, struct windata *w,
@@ -146,12 +147,12 @@ static void output_touch(utouch_frame_handle fh, struct windata *w,
 			     w->color[t->slot].r,
 			     w->color[t->slot].g,
 			     w->color[t->slot].b);
+
 	cairo_move_to(w->cr, x - mx / 2 + radius, y - my / 2 + radius);
 	cairo_arc(w->cr, x - mx / 2, y - my / 2, radius, 0, 2 * M_PI);
 	cairo_fill(w->cr);
 	cairo_restore(w->cr);
-
-	expose(w);
+	expose(w, x - mx/2 - radius, y - my/2 - radius, 2 * radius, 2 * radius);
 }
 
 static void report_frame(utouch_frame_handle fh,
@@ -198,9 +199,8 @@ static int init_window(struct windata *w)
 						   w->width, w->height);
 	w->cr_win = cairo_create(w->surface_win);
 
-	w->surface = cairo_surface_create_similar(w->surface_win,
-						  CAIRO_CONTENT_COLOR_ALPHA,
-						  w->width, w->height);
+	w->surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+						w->width, w->height);
 	w->cr = cairo_create(w->surface);
 
 	cairo_set_line_width(w->cr, 1);
@@ -208,7 +208,7 @@ static int init_window(struct windata *w)
 	cairo_rectangle(w->cr, 0, 0, w->width, w->height);
 	cairo_fill(w->cr);
 
-	expose(w);
+	expose(w, 0, 0, w->width, w->height);
 
 	XSelectInput(w->dsp, w->win, StructureNotifyMask);
 	XMapWindow(w->dsp, w->win);
@@ -256,7 +256,7 @@ static void set_screen_size_mtdev(utouch_frame_handle fh,
 								   w->visual,
 								   w->width, w->height);
 			w->cr_win = cairo_create(w->surface_win);
-			expose(w);
+			expose(w, 0, 0, w->width, w->height);
 		}
 	}
 
