@@ -185,6 +185,8 @@ static int init_window(struct windata *w)
 
 	w->width = DisplayWidth(w->dsp, w->screen);
 	w->height = DisplayHeight(w->dsp, w->screen);
+	w->off_x = 0;
+	w->off_y = 0;
 	w->win = XCreateSimpleWindow(w->dsp, XDefaultRootWindow(w->dsp),
 				     0, 0, w->width, w->height,
 				     0, w->black, w->white);
@@ -239,9 +241,23 @@ static void set_screen_size_mtdev(utouch_frame_handle fh,
 	s->mapped_max_y = DisplayHeight(w->dsp, w->screen);
 	s->mapped_max_pressure = 1;
 
-	if (cev) {
-		w->off_x = cev->x;
-		w->off_y = cev->y;
+	if (cev && cev->width && cev->height) {
+		s->mapped_max_x = cev->width;
+		s->mapped_max_y = cev->height;
+
+		if (cev->width != w->width || cev->height != w->height)
+		{
+			cairo_destroy(w->cr_win);
+			cairo_surface_destroy(w->surface_win);
+
+			w->width = cev->width;
+			w->height = cev->height;
+			w->surface_win = cairo_xlib_surface_create(w->dsp, w->win,
+								   w->visual,
+								   w->width, w->height);
+			w->cr_win = cairo_create(w->surface_win);
+			expose(w);
+		}
 	}
 
 	fprintf(stderr, "map: %f %f %f %f %f %f\n",
