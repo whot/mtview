@@ -149,6 +149,7 @@ static int init_window(struct windata *w)
 				     0, 0, 200, 200, 0, w->black, w->white);
 	w->gc = DefaultGC(w->dsp, w->screen);
 
+	XSelectInput(w->dsp, w->win, StructureNotifyMask);
 	XMapWindow(w->dsp, w->win);
 	XFlush(w->dsp);
 
@@ -198,7 +199,6 @@ static void run_window_mtdev(utouch_frame_handle fh, struct mtdev *dev, int fd)
 	clear_screen(fh, &w);
 
 	set_screen_size_mtdev(fh, &w, 0);
-	XSelectInput(w.dsp, w.win, StructureNotifyMask);
 
 	while (1) {
 		while (!mtdev_idle(dev, fd, 100)) {
