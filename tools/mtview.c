@@ -115,7 +115,6 @@ static void output_touch(utouch_frame_handle fh, struct windata *w,
 	float dy = s->mapped_max_y - s->mapped_min_y;
 	float x = t->x - w->off_x, y = t->y - w->off_y;
 	float major = 0, minor = 0, angle = 0;
-	const int radius = 30;
 
 	if (s->use_pressure) {
 		major = DEF_FRAC * t->pressure * dy;
@@ -142,17 +141,18 @@ static void output_touch(utouch_frame_handle fh, struct windata *w,
 		w->color[t->slot] = new_color(w);
 	}
 
-	cairo_save(w->cr);
 	cairo_set_source_rgb(w->cr,
 			     w->color[t->slot].r,
 			     w->color[t->slot].g,
 			     w->color[t->slot].b);
-
-	cairo_move_to(w->cr, x - mx / 2 + radius, y - my / 2 + radius);
-	cairo_arc(w->cr, x - mx / 2, y - my / 2, radius, 0, 2 * M_PI);
+	/* cairo ellipsis */
+	cairo_save(w->cr);
+	cairo_translate(w->cr, x, y);
+	cairo_scale(w->cr, mx/2., my/2.);
+	cairo_arc(w->cr, 0, 0, 1, 0, 2 * M_PI);
 	cairo_fill(w->cr);
 	cairo_restore(w->cr);
-	expose(w, x - mx/2 - radius, y - my/2 - radius, 2 * radius, 2 * radius);
+	expose(w, x - mx/2, y - my/2, mx, my);
 }
 
 static void report_frame(utouch_frame_handle fh,
