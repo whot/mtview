@@ -20,12 +20,16 @@
  *
  ****************************************************************************/
 
+
 #include "config.h"
+/* force XI22 support off until utouch-frame is less broken */
+#undef HAVE_XI22
+
 #include <X11/Xlib.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <utouch/frame-mtdev.h>
-#if HAVE_XI
+#if HAVE_XI22
 #include <utouch/frame-xi2.h>
 #endif
 #include <stdlib.h>
@@ -262,7 +266,7 @@ static int run_mtdev(const char *name)
 	return 0;
 }
 
-#if HAVE_XI
+#if HAVE_XI22
 static void handle_event_xi2(struct windata *w,
 			     utouch_frame_handle fh,
 			     XEvent *ev)
