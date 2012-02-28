@@ -1,7 +1,5 @@
 bin_PROGRAMS = mtview
 
-INCLUDES=-I$(top_srcdir)/include/
-
 mtview_SOURCES = mtview.c
 mtview_LDFLAGS = $(MTDEV_LIBS) $(EVEMU_LIBS) $(FRAME_LIBS) $(X11_LIBS) $(LIBM)
 
