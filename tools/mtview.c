@@ -310,7 +310,8 @@ static void run_window_mtdev(utouch_frame_handle fh, struct mtdev *dev, int fd)
 		}
 		while (XPending(w.dsp)) {
 			XNextEvent(w.dsp, &xev);
-			set_screen_size_mtdev(fh, &w, &xev);
+			if (xev.type == ConfigureNotify)
+				set_screen_size_mtdev(fh, &w, &xev);
 		}
 	}
 
