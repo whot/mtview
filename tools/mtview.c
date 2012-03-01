@@ -21,6 +21,7 @@
  ****************************************************************************/
 
 
+#define _GNU_SOURCE
 #include "config.h"
 /* force XI22 support off until utouch-frame is less broken */
 #undef HAVE_XI22
@@ -28,6 +29,7 @@
 #include <X11/Xlib.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <utouch/frame-mtdev.h>
 #if HAVE_XI22
 #include <utouch/frame-xi2.h>
@@ -454,20 +456,80 @@ static int run_xi2(int id)
 }
 #endif
 
-int main(int argc, char *argv[])
-{
-	int id, ret;
+#define DEV_INPUT_EVENT "/dev/input"
+#define EVENT_DEV_NAME "event"
 
-	if (argc < 2) {
-		fprintf(stderr, "Usage: %s <device>\n", argv[0]);
-		return -1;
+static int is_event_device(const struct dirent *dir) {
+	return strncmp(EVENT_DEV_NAME, dir->d_name, 5) == 0;
+}
+
+static char* scan_devices(void)
+{
+	struct dirent **namelist;
+	int i, ndev, devnum;
+	char *filename;
+
+	ndev = scandir(DEV_INPUT_EVENT, &namelist, is_event_device, alphasort);
+	if (ndev <= 0)
+		return NULL;
+
+	fprintf(stderr, "Available devices:\n");
+
+	for (i = 0; i < ndev; i++)
+	{
+		char fname[64];
+		int fd = -1;
+		char name[256] = "???";
+
+		snprintf(fname, sizeof(fname),
+			 "%s/%s", DEV_INPUT_EVENT, namelist[i]->d_name);
+		fd = open(fname, O_RDONLY);
+		if (fd < 0)
+			continue;
+		ioctl(fd, EVIOCGNAME(sizeof(name)), name);
+
+		fprintf(stderr, "%s:	%s\n", fname, name);
+		close(fd);
+		free(namelist[i]);
 	}
 
-	id = atoi(argv[1]);
+	fprintf(stderr, "Select the device event number [0-%d]: ", ndev - 1);
+	scanf("%d", &devnum);
+
+	if (devnum >= ndev || devnum < 0)
+		return NULL;
+
+	asprintf(&filename, "%s/%s%d",
+		 DEV_INPUT_EVENT, EVENT_DEV_NAME,
+		 devnum);
+
+	return filename;
+}
+
+int main(int argc, char *argv[])
+{
+	int id = 0, ret;
+	char *device = NULL;
+
+	if (argc < 2) {
+		device = scan_devices();
+		if (!device)
+		{
+		    fprintf(stderr, "Failed to find a device.\n");
+		    return 1;
+		}
+	} else
+	{
+	    id = atoi(argv[1]);
+	    device = strdup(argv[1]);
+	}
+
 	if (id)
 		ret = run_xi2(id);
 	else
-		ret = run_mtdev(argv[1]);
+		ret = run_mtdev(device);
+
+	free(device);
 
 	return ret;
 }
