@@ -301,11 +301,15 @@ static int run_mtdev(const char *name)
 
 	fd = open(name, O_RDONLY | O_NONBLOCK);
 	if (fd < 0) {
-		fprintf(stderr, "error: could not open device\n");
+		fprintf(stderr, "error: could not open device (%s)\n",
+			strerror(errno));
 		return -1;
 	}
 	if (ioctl(fd, EVIOCGRAB, 1)) {
-		fprintf(stderr, "error: could not grab the device\n");
+		fprintf(stderr, "error: could not grab the device.\n");
+		fprintf(stderr, "This device may already be grabbed by "
+			"another process (e.g. the synaptics or the wacom "
+			"X driver)\n");
 		return -1;
 	}
 
@@ -316,6 +320,7 @@ static int run_mtdev(const char *name)
 	}
 	if (!utouch_frame_is_supported_mtdev(evemu)) {
 		fprintf(stderr, "error: unsupported device\n");
+		fprintf(stderr, "Is this a multitouch device?\n");
 		return -1;
 	}
 	mtdev = mtdev_new_open(fd);
