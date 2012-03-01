@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <stdarg.h>
 #include <utouch/frame-mtdev.h>
 #if HAVE_XI22
 #include <utouch/frame-xi2.h>
@@ -72,6 +73,28 @@ struct windata {
 	cairo_t *cr_win;
 	cairo_surface_t *surface_win;
 };
+
+static int error(const char *fmt, ...)
+{
+	va_list args;
+	fprintf(stderr, "error: ");
+
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
+
+	return EXIT_FAILURE;
+}
+
+static void msg(const char *fmt, ...)
+{
+	va_list args;
+	printf("info: ");
+
+	va_start(args, fmt);
+	vprintf(fmt, args);
+	va_end(args);
+}
 
 static inline float max(float a, float b)
 {
@@ -303,36 +326,35 @@ static int run_mtdev(const char *name)
 
 	fd = open(name, O_RDONLY | O_NONBLOCK);
 	if (fd < 0) {
-		fprintf(stderr, "error: could not open device (%s)\n",
-			strerror(errno));
+		error("could not open device (%s)\n", strerror(errno));
 		return -1;
 	}
 	if (ioctl(fd, EVIOCGRAB, 1)) {
-		fprintf(stderr, "error: could not grab the device.\n");
-		fprintf(stderr, "This device may already be grabbed by "
-			"another process (e.g. the synaptics or the wacom "
-			"X driver)\n");
+		error("could not grab the device.\n");
+		error("This device may already be grabbed by "
+		      "another process (e.g. the synaptics or the wacom "
+		      "X driver)\n");
 		return -1;
 	}
 
 	evemu = evemu_new(0);
 	if (!evemu || evemu_extract(evemu, fd)) {
-		fprintf(stderr, "error: could not describe device\n");
+		error("could not describe device\n");
 		return -1;
 	}
 	if (!utouch_frame_is_supported_mtdev(evemu)) {
-		fprintf(stderr, "error: unsupported device\n");
-		fprintf(stderr, "Is this a multitouch device?\n");
+		error("unsupported device\n");
+		error("Is this a multitouch device?\n");
 		return -1;
 	}
 	mtdev = mtdev_new_open(fd);
 	if (!mtdev) {
-		fprintf(stderr, "error: could not open mtdev\n");
+		error("could not open mtdev\n");
 		return -1;
 	}
 	fh = utouch_frame_new_engine(100, 32, 100);
 	if (!fh || utouch_frame_init_mtdev(fh, evemu)) {
-		fprintf(stderr, "error: could not init frame\n");
+		error("could not init frame\n");
 		return -1;
 	}
 
@@ -451,7 +473,7 @@ static int run_xi2(int id)
 #else
 static int run_xi2(int id)
 {
-	fprintf(stderr, "XI2.2 not supported\n");
+	error("XI2.2 not supported\n");
 	return 0;
 }
 #endif
@@ -515,7 +537,7 @@ int main(int argc, char *argv[])
 		device = scan_devices();
 		if (!device)
 		{
-		    fprintf(stderr, "Failed to find a device.\n");
+		    error("Failed to find a device.\n");
 		    return 1;
 		}
 	} else
