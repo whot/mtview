@@ -1,4 +1,4 @@
-SUBDIRS = tools
+SUBDIRS = tools man
 
 INCLUDES = $(top_srcdir)/include/
 

@@ -1,0 +1,31 @@
+MTVIEW(1)
+=========
+
+NAME
+----
+	mtview - Multitouch event display tool
+
+SYNOPSIS
+--------
+	mtview /dev/input/eventX
+
+DESCRIPTION
+-----------
+mtview captures multitouch events from the specified input devices and
+displays them on a graphical window.
+
+DIAGNOSTICS
+-----------
+If the device is grabbed by another process, mtview will not see any events
+(EVIOCGRAB).  This is usually the case when debugging a synaptics or wacom
+device from within X. Disabling the device by setting the "Device Enabled"
+property on the device is usually sufficient for that driver to drop the
+grab.
+
+  xinput set-prop "device name" "Device Enabled" 0
+
+AUTHORS
+-------
+Henrik Rydberg <rydberg@euromail.se>
+Peter Hutterer <peter.hutterer@who-t.net>
+
