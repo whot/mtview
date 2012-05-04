@@ -38,11 +38,6 @@ if test "x$XMLTO" = "x" || test "x$ASCIIDOC" = "x"; then
 	AC_MSG_WARN([xmlto or asciidoc not found - cannot create man pages without it])
 fi
 
-PKG_CHECK_MODULES(XINPUT, x11 xext [xi >= 1.5.99.1] [inputproto >= 2.1.99.6],
-                  HAVE_XI22="yes"; AC_DEFINE(HAVE_XI22, 1, [XI22 available]),
-                  HAVE_XI22="no");
-AM_CONDITIONAL([HAVE_XI22], [test "HAVE_XI22" = "yes"])
-
 AC_CONFIG_FILES([Makefile
                  tools/Makefile
                  man/Makefile])
