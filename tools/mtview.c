@@ -53,6 +53,24 @@ struct color {
 	float r, g, b;
 };
 
+struct touch_data {
+	int active;
+	int data[ABS_CNT];
+};
+
+struct touch_info {
+	int minx,
+	    maxx,
+	    miny,
+	    maxy;
+	int has_pressure;
+	int has_touch_major,
+	    has_touch_minor;
+
+	int ntouches;
+	struct touch_data touches[DIM_TOUCH];
+};
+
 struct windata {
 	Display *dsp;
 	Window win;
@@ -118,11 +136,10 @@ static void expose(struct windata *win, int x, int y, int w, int h)
 	cairo_fill(win->cr_win);
 }
 
-static void clear_screen(utouch_frame_handle fh, struct windata *w)
+static void clear_screen(struct touch_info *touch_info, struct windata *w)
 {
-	const struct utouch_surface *s = utouch_frame_get_surface(fh);
-	int width = s->mapped_max_x - s->mapped_min_x;
-	int height = s->mapped_max_y - s->mapped_min_y;
+	int width = touch_info->maxx - touch_info->minx;
+	int height = touch_info->maxy - touch_info->miny;
 
 	cairo_set_line_width(w->cr, 1);
 	cairo_set_source_rgb(w->cr, 1, 1, 1);
@@ -132,21 +149,21 @@ static void clear_screen(utouch_frame_handle fh, struct windata *w)
 	expose(w, 0, 0, width, height);
 }
 
-static void output_touch(utouch_frame_handle fh, struct windata *w,
+static void output_touch(const struct touch_info *touch_info,
+			 struct windata *w,
 			 const struct utouch_contact *t)
 {
-	const struct utouch_surface *s = utouch_frame_get_surface(fh);
 	float dx = w->width;
 	float dy = w->height;
 	float x = t->x - w->off_x, y = t->y - w->off_y;
 	float major = 0, minor = 0, angle = 0;
 
-	if (s->use_pressure) {
+	if (touch_info->has_pressure) {
 		major = DEF_FRAC * t->pressure * dy;
 		minor = DEF_FRAC * t->pressure * dx;
 		angle = 0;
 	}
-	if (s->use_touch_major) {
+	if (touch_info->has_touch_major && touch_info->has_touch_minor) {
 		major = t->touch_major;
 		minor = t->touch_minor;
 		angle = t->orientation;
@@ -177,17 +194,19 @@ static void output_touch(utouch_frame_handle fh, struct windata *w,
 	cairo_arc(w->cr, 0, 0, 1, 0, 2 * M_PI);
 	cairo_fill(w->cr);
 	cairo_restore(w->cr);
+
 	expose(w, x - mx/2, y - my/2, mx, my);
 }
 
 static void report_frame(utouch_frame_handle fh,
+			 const struct touch_info *touch_info,
 			 const struct utouch_frame *frame,
 			 struct windata *w)
 {
 	int i;
 
 	for (i = 0; i < frame->num_active; i++)
-		output_touch(fh, w, frame->active[i]);
+		output_touch(touch_info, w, frame->active[i]);
 }
 
 static int init_window(struct windata *w)
@@ -286,7 +305,9 @@ static void set_screen_size_mtdev(utouch_frame_handle fh,
 	}
 }
 
-static void run_window_mtdev(utouch_frame_handle fh, struct mtdev *dev, int fd)
+static void run_window_mtdev(utouch_frame_handle fh,
+			     struct touch_info *touch_info,
+			     struct mtdev *dev, int fd)
 {
 	const struct utouch_frame *frame;
 	struct input_event iev;
@@ -296,7 +317,7 @@ static void run_window_mtdev(utouch_frame_handle fh, struct mtdev *dev, int fd)
 	if (init_window(&w))
 		return;
 
-	clear_screen(fh, &w);
+	clear_screen(touch_info, &w);
 
 	set_screen_size_mtdev(fh, &w, 0);
 
@@ -305,7 +326,7 @@ static void run_window_mtdev(utouch_frame_handle fh, struct mtdev *dev, int fd)
 			while (mtdev_get(dev, fd, &iev, 1) > 0) {
 				frame = utouch_frame_pump_mtdev(fh, &iev);
 				if (frame)
-					report_frame(fh, frame, &w);
+					report_frame(fh, touch_info, frame, &w);
 			}
 		}
 		while (XPending(w.dsp)) {
@@ -324,10 +345,33 @@ static int is_mt_device(const struct evemu_device *dev)
 	       evemu_has_event(dev, EV_ABS, ABS_MT_POSITION_Y);
 }
 
+static void init_touches(const struct evemu_device *dev,
+			 struct touch_info *t, int ntouches)
+{
+	int i;
+
+	t->ntouches = ntouches;
+
+	t->minx = evemu_get_abs_minimum(dev, ABS_MT_POSITION_X);
+	t->maxx = evemu_get_abs_maximum(dev, ABS_MT_POSITION_X);
+	t->miny = evemu_get_abs_minimum(dev, ABS_MT_POSITION_Y);
+	t->maxy = evemu_get_abs_maximum(dev, ABS_MT_POSITION_Y);
+
+	t->has_pressure = evemu_has_event(dev, EV_ABS, ABS_MT_PRESSURE);
+	t->has_touch_major = evemu_has_event(dev, EV_ABS, ABS_MT_TOUCH_MAJOR);
+	t->has_touch_minor = evemu_has_event(dev, EV_ABS, ABS_MT_TOUCH_MINOR);
+
+	for (i = 0; i < t->ntouches; i++) {
+		t->touches[i].active = 0;
+		t->touches[i].data[ABS_MT_TRACKING_ID] = -1;
+	}
+}
+
 static int run_mtdev(const char *name)
 {
 	struct evemu_device *evemu;
 	struct mtdev *mtdev;
+	struct touch_info t;
 	utouch_frame_handle fh;
 	int fd;
 
@@ -360,13 +404,16 @@ static int run_mtdev(const char *name)
 		error("could not open mtdev\n");
 		return -1;
 	}
+
+	init_touches(evemu, &t, DIM_TOUCH);
+
 	fh = utouch_frame_new_engine(100, 32, 100);
 	if (!fh || utouch_frame_init_mtdev(fh, evemu)) {
 		error("could not init frame\n");
 		return -1;
 	}
 
-	run_window_mtdev(fh, mtdev, fd);
+	run_window_mtdev(fh, &t, mtdev, fd);
 
 	utouch_frame_delete_engine(fh);
 	mtdev_close_delete(mtdev);
