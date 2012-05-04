@@ -26,15 +26,14 @@
 /* force XI22 support off until utouch-frame is less broken */
 #undef HAVE_XI22
 
+#include <linux/input.h>
+#include <mtdev.h>
+#include <evemu.h>
 #include <X11/Xlib.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <stdarg.h>
-#include <utouch/frame-mtdev.h>
-#if HAVE_XI22
-#include <utouch/frame-xi2.h>
-#endif
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -42,8 +41,8 @@
 #include <cairo.h>
 #include <cairo-xlib.h>
 
-#define DEF_FRAC 0.15
 #define DEF_WIDTH 0.05
+#define DEFAULT_WIDTH_MULTIPLIER 5 /* if no major/minor give the actual size */
 
 #define DIM_TOUCH 32
 
@@ -69,6 +68,7 @@ struct touch_info {
 
 	int ntouches;
 	struct touch_data touches[DIM_TOUCH];
+	int current_slot;
 };
 
 struct windata {
@@ -151,22 +151,23 @@ static void clear_screen(struct touch_info *touch_info, struct windata *w)
 
 static void output_touch(const struct touch_info *touch_info,
 			 struct windata *w,
-			 const struct utouch_contact *t)
+			 const struct touch_data *t)
 {
-	float dx = w->width;
-	float dy = w->height;
-	float x = t->x - w->off_x, y = t->y - w->off_y;
+	float dx = 1.0 * w->width/(touch_info->maxx - touch_info->minx);
+	float dy = 1.0 * w->height/(touch_info->maxy - touch_info->miny);
+	float x = (t->data[ABS_MT_POSITION_X] - touch_info->minx) * dx,
+	      y = (t->data[ABS_MT_POSITION_Y] - touch_info->miny) * dy;
 	float major = 0, minor = 0, angle = 0;
 
 	if (touch_info->has_pressure) {
-		major = DEF_FRAC * t->pressure * dy;
-		minor = DEF_FRAC * t->pressure * dx;
+		major = DEFAULT_WIDTH_MULTIPLIER * t->data[ABS_MT_PRESSURE] * dy;
+		minor = DEFAULT_WIDTH_MULTIPLIER * t->data[ABS_MT_PRESSURE] * dx;
 		angle = 0;
 	}
 	if (touch_info->has_touch_major && touch_info->has_touch_minor) {
-		major = t->touch_major;
-		minor = t->touch_minor;
-		angle = t->orientation;
+		major = t->data[ABS_MT_TOUCH_MAJOR];
+		minor = t->data[ABS_MT_TOUCH_MINOR];
+		angle = t->data[ABS_MT_ORIENTATION];
 	}
 	if (major == 0 && minor == 0) {
 		major = DEF_WIDTH * dy;
@@ -178,15 +179,15 @@ static void output_touch(const struct touch_info *touch_info,
 	float mx = max(minor * ac, major * as);
 	float my = max(major * ac, minor * as);
 
-	if (w->id[t->slot] != t->id) {
-		w->id[t->slot] = t->id;
-		w->color[t->slot] = new_color(w);
+	if (w->id[t->data[ABS_MT_SLOT]] != t->data[ABS_MT_TRACKING_ID]) {
+		w->id[t->data[ABS_MT_SLOT]] = t->data[ABS_MT_TRACKING_ID];
+		w->color[t->data[ABS_MT_SLOT]] = new_color(w);
 	}
 
 	cairo_set_source_rgb(w->cr,
-			     w->color[t->slot].r,
-			     w->color[t->slot].g,
-			     w->color[t->slot].b);
+			     w->color[t->data[ABS_MT_SLOT]].r,
+			     w->color[t->data[ABS_MT_SLOT]].g,
+			     w->color[t->data[ABS_MT_SLOT]].b);
 	/* cairo ellipsis */
 	cairo_save(w->cr);
 	cairo_translate(w->cr, x, y);
@@ -198,15 +199,14 @@ static void output_touch(const struct touch_info *touch_info,
 	expose(w, x - mx/2, y - my/2, mx, my);
 }
 
-static void report_frame(utouch_frame_handle fh,
-			 const struct touch_info *touch_info,
-			 const struct utouch_frame *frame,
+static void report_frame(const struct touch_info *touch_info,
 			 struct windata *w)
 {
 	int i;
 
-	for (i = 0; i < frame->num_active; i++)
-		output_touch(touch_info, w, frame->active[i]);
+	for (i = 0; i < touch_info->ntouches; i++)
+		if (touch_info->touches[i].active)
+			output_touch(touch_info, w, &touch_info->touches[i]);
 }
 
 static int init_window(struct windata *w)
@@ -272,23 +272,12 @@ static void term_window(struct windata *w)
 	XCloseDisplay(w->dsp);
 }
 
-static void set_screen_size_mtdev(utouch_frame_handle fh,
-				  struct windata *w,
+static void set_screen_size_mtdev(struct windata *w,
 				  XEvent *xev)
 {
-	struct utouch_surface *s = utouch_frame_get_surface(fh);
 	XConfigureEvent *cev = (XConfigureEvent *)xev;
 
-	s->mapped_min_x = 0;
-	s->mapped_min_y = 0;
-	s->mapped_max_x = DisplayWidth(w->dsp, w->screen);
-	s->mapped_max_y = DisplayHeight(w->dsp, w->screen);
-	s->mapped_max_pressure = 1;
-
 	if (cev && cev->width && cev->height) {
-		s->mapped_max_x = cev->width;
-		s->mapped_max_y = cev->height;
-
 		if (cev->width != w->width || cev->height != w->height)
 		{
 			cairo_destroy(w->cr_win);
@@ -305,11 +294,41 @@ static void set_screen_size_mtdev(utouch_frame_handle fh,
 	}
 }
 
-static void run_window_mtdev(utouch_frame_handle fh,
-			     struct touch_info *touch_info,
+static void handle_abs_event(struct input_event *ev, struct touch_info *touch_info)
+{
+	int slot;
+
+	slot = touch_info->current_slot;
+	switch(ev->code) {
+		case ABS_MT_TRACKING_ID:
+			if (slot == -1)
+				break;
+			touch_info->touches[slot].active = (ev->value != -1);
+			break;
+		case ABS_MT_SLOT:
+			touch_info->current_slot = ev->value;
+			slot = touch_info->current_slot;
+			break;
+	}
+	if (slot == -1)
+		return;
+
+	touch_info->touches[slot].data[ev->code] = ev->value;
+}
+
+static int handle_event(struct input_event *ev, struct touch_info *touch_info)
+{
+	if (ev->type == EV_SYN && ev->code == SYN_REPORT)
+		return 1;
+
+	if (ev->type == EV_ABS)
+		handle_abs_event(ev, touch_info);
+	return 0;
+}
+
+static void run_window_mtdev(struct touch_info *touch_info,
 			     struct mtdev *dev, int fd)
 {
-	const struct utouch_frame *frame;
 	struct input_event iev;
 	struct windata w;
 	XEvent xev;
@@ -319,20 +338,19 @@ static void run_window_mtdev(utouch_frame_handle fh,
 
 	clear_screen(touch_info, &w);
 
-	set_screen_size_mtdev(fh, &w, 0);
+	set_screen_size_mtdev(&w, 0);
 
 	while (1) {
 		while (!mtdev_idle(dev, fd, 100)) {
 			while (mtdev_get(dev, fd, &iev, 1) > 0) {
-				frame = utouch_frame_pump_mtdev(fh, &iev);
-				if (frame)
-					report_frame(fh, touch_info, frame, &w);
+				if (handle_event(&iev, touch_info))
+					report_frame(touch_info, &w);
 			}
 		}
 		while (XPending(w.dsp)) {
 			XNextEvent(w.dsp, &xev);
 			if (xev.type == ConfigureNotify)
-				set_screen_size_mtdev(fh, &w, &xev);
+				set_screen_size_mtdev(&w, &xev);
 		}
 	}
 
@@ -351,6 +369,7 @@ static void init_touches(const struct evemu_device *dev,
 	int i;
 
 	t->ntouches = ntouches;
+	t->current_slot = -1;
 
 	t->minx = evemu_get_abs_minimum(dev, ABS_MT_POSITION_X);
 	t->maxx = evemu_get_abs_maximum(dev, ABS_MT_POSITION_X);
@@ -363,7 +382,9 @@ static void init_touches(const struct evemu_device *dev,
 
 	for (i = 0; i < t->ntouches; i++) {
 		t->touches[i].active = 0;
+		memset(t->touches[i].data, 0, sizeof(t->touches[i].data));
 		t->touches[i].data[ABS_MT_TRACKING_ID] = -1;
+		t->touches[i].data[ABS_MT_SLOT] = -1;
 	}
 }
 
@@ -372,7 +393,6 @@ static int run_mtdev(const char *name)
 	struct evemu_device *evemu;
 	struct mtdev *mtdev;
 	struct touch_info t;
-	utouch_frame_handle fh;
 	int fd;
 
 	fd = open(name, O_RDONLY | O_NONBLOCK);
@@ -407,15 +427,8 @@ static int run_mtdev(const char *name)
 
 	init_touches(evemu, &t, DIM_TOUCH);
 
-	fh = utouch_frame_new_engine(100, 32, 100);
-	if (!fh || utouch_frame_init_mtdev(fh, evemu)) {
-		error("could not init frame\n");
-		return -1;
-	}
+	run_window_mtdev(&t, mtdev, fd);
 
-	run_window_mtdev(fh, &t, mtdev, fd);
-
-	utouch_frame_delete_engine(fh);
 	mtdev_close_delete(mtdev);
 	evemu_delete(evemu);
 
