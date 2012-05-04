@@ -136,8 +136,8 @@ static void output_touch(utouch_frame_handle fh, struct windata *w,
 			 const struct utouch_contact *t)
 {
 	const struct utouch_surface *s = utouch_frame_get_surface(fh);
-	float dx = s->mapped_max_x - s->mapped_min_x;
-	float dy = s->mapped_max_y - s->mapped_min_y;
+	float dx = w->width;
+	float dy = w->height;
 	float x = t->x - w->off_x, y = t->y - w->off_y;
 	float major = 0, minor = 0, angle = 0;
 
