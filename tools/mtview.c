@@ -318,6 +318,12 @@ static void run_window_mtdev(utouch_frame_handle fh, struct mtdev *dev, int fd)
 	term_window(&w);
 }
 
+static int is_mt_device(const struct evemu_device *dev)
+{
+	return evemu_has_event(dev, EV_ABS, ABS_MT_POSITION_X) &&
+	       evemu_has_event(dev, EV_ABS, ABS_MT_POSITION_Y);
+}
+
 static int run_mtdev(const char *name)
 {
 	struct evemu_device *evemu;
@@ -343,7 +349,8 @@ static int run_mtdev(const char *name)
 		error("could not describe device\n");
 		return -1;
 	}
-	if (!utouch_frame_is_supported_mtdev(evemu)) {
+
+	if (!is_mt_device(evemu)) {
 		error("unsupported device\n");
 		error("Is this a multitouch device?\n");
 		return -1;
