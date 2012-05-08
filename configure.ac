@@ -26,7 +26,6 @@ LT_LIB_M
 
 PKG_CHECK_MODULES([MTDEV], [mtdev >= 1.1])
 PKG_CHECK_MODULES([EVEMU], [utouch-evemu >= 1.0])
-PKG_CHECK_MODULES([FRAME], [utouch-frame >= 1.1])
 PKG_CHECK_MODULES([X11], [x11])
 PKG_CHECK_MODULES([CAIRO], [cairo])
 
@@ -38,11 +37,6 @@ AM_CONDITIONAL([HAVE_DOCTOOLS], [test "x$XMLTO" != "x" && test "x$ASCIIDOC" != "
 if test "x$XMLTO" = "x" || test "x$ASCIIDOC" = "x"; then
 	AC_MSG_WARN([xmlto or asciidoc not found - cannot create man pages without it])
 fi
-
-PKG_CHECK_MODULES(XINPUT, x11 xext [xi >= 1.5.99.1] [inputproto >= 2.1.99.6],
-                  HAVE_XI22="yes"; AC_DEFINE(HAVE_XI22, 1, [XI22 available]),
-                  HAVE_XI22="no");
-AM_CONDITIONAL([HAVE_XI22], [test "HAVE_XI22" = "yes"])
 
 AC_CONFIG_FILES([Makefile
                  tools/Makefile

@@ -23,18 +23,15 @@
 
 #define _GNU_SOURCE
 #include "config.h"
-/* force XI22 support off until utouch-frame is less broken */
-#undef HAVE_XI22
 
+#include <linux/input.h>
+#include <mtdev.h>
+#include <evemu.h>
 #include <X11/Xlib.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <stdarg.h>
-#include <utouch/frame-mtdev.h>
-#if HAVE_XI22
-#include <utouch/frame-xi2.h>
-#endif
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -42,8 +39,8 @@
 #include <cairo.h>
 #include <cairo-xlib.h>
 
-#define DEF_FRAC 0.15
 #define DEF_WIDTH 0.05
+#define DEFAULT_WIDTH_MULTIPLIER 5 /* if no major/minor give the actual size */
 
 #define DIM_TOUCH 32
 
@@ -51,6 +48,25 @@ static int opcode;
 
 struct color {
 	float r, g, b;
+};
+
+struct touch_data {
+	int active;
+	int data[ABS_CNT];
+};
+
+struct touch_info {
+	int minx,
+	    maxx,
+	    miny,
+	    maxy;
+	int has_pressure;
+	int has_touch_major,
+	    has_touch_minor;
+
+	int ntouches;
+	struct touch_data touches[DIM_TOUCH];
+	int current_slot;
 };
 
 struct windata {
@@ -118,11 +134,10 @@ static void expose(struct windata *win, int x, int y, int w, int h)
 	cairo_fill(win->cr_win);
 }
 
-static void clear_screen(utouch_frame_handle fh, struct windata *w)
+static void clear_screen(struct touch_info *touch_info, struct windata *w)
 {
-	const struct utouch_surface *s = utouch_frame_get_surface(fh);
-	int width = s->mapped_max_x - s->mapped_min_x;
-	int height = s->mapped_max_y - s->mapped_min_y;
+	int width = touch_info->maxx - touch_info->minx;
+	int height = touch_info->maxy - touch_info->miny;
 
 	cairo_set_line_width(w->cr, 1);
 	cairo_set_source_rgb(w->cr, 1, 1, 1);
@@ -132,24 +147,25 @@ static void clear_screen(utouch_frame_handle fh, struct windata *w)
 	expose(w, 0, 0, width, height);
 }
 
-static void output_touch(utouch_frame_handle fh, struct windata *w,
-			 const struct utouch_contact *t)
+static void output_touch(const struct touch_info *touch_info,
+			 struct windata *w,
+			 const struct touch_data *t)
 {
-	const struct utouch_surface *s = utouch_frame_get_surface(fh);
-	float dx = s->mapped_max_x - s->mapped_min_x;
-	float dy = s->mapped_max_y - s->mapped_min_y;
-	float x = t->x - w->off_x, y = t->y - w->off_y;
+	float dx = 1.0 * w->width/(touch_info->maxx - touch_info->minx);
+	float dy = 1.0 * w->height/(touch_info->maxy - touch_info->miny);
+	float x = (t->data[ABS_MT_POSITION_X] - touch_info->minx) * dx,
+	      y = (t->data[ABS_MT_POSITION_Y] - touch_info->miny) * dy;
 	float major = 0, minor = 0, angle = 0;
 
-	if (s->use_pressure) {
-		major = DEF_FRAC * t->pressure * dy;
-		minor = DEF_FRAC * t->pressure * dx;
+	if (touch_info->has_pressure) {
+		major = DEFAULT_WIDTH_MULTIPLIER * t->data[ABS_MT_PRESSURE] * dy;
+		minor = DEFAULT_WIDTH_MULTIPLIER * t->data[ABS_MT_PRESSURE] * dx;
 		angle = 0;
 	}
-	if (s->use_touch_major) {
-		major = t->touch_major;
-		minor = t->touch_minor;
-		angle = t->orientation;
+	if (touch_info->has_touch_major && touch_info->has_touch_minor) {
+		major = t->data[ABS_MT_TOUCH_MAJOR];
+		minor = t->data[ABS_MT_TOUCH_MINOR];
+		angle = t->data[ABS_MT_ORIENTATION];
 	}
 	if (major == 0 && minor == 0) {
 		major = DEF_WIDTH * dy;
@@ -161,15 +177,15 @@ static void output_touch(utouch_frame_handle fh, struct windata *w,
 	float mx = max(minor * ac, major * as);
 	float my = max(major * ac, minor * as);
 
-	if (w->id[t->slot] != t->id) {
-		w->id[t->slot] = t->id;
-		w->color[t->slot] = new_color(w);
+	if (w->id[t->data[ABS_MT_SLOT]] != t->data[ABS_MT_TRACKING_ID]) {
+		w->id[t->data[ABS_MT_SLOT]] = t->data[ABS_MT_TRACKING_ID];
+		w->color[t->data[ABS_MT_SLOT]] = new_color(w);
 	}
 
 	cairo_set_source_rgb(w->cr,
-			     w->color[t->slot].r,
-			     w->color[t->slot].g,
-			     w->color[t->slot].b);
+			     w->color[t->data[ABS_MT_SLOT]].r,
+			     w->color[t->data[ABS_MT_SLOT]].g,
+			     w->color[t->data[ABS_MT_SLOT]].b);
 	/* cairo ellipsis */
 	cairo_save(w->cr);
 	cairo_translate(w->cr, x, y);
@@ -177,17 +193,18 @@ static void output_touch(utouch_frame_handle fh, struct windata *w,
 	cairo_arc(w->cr, 0, 0, 1, 0, 2 * M_PI);
 	cairo_fill(w->cr);
 	cairo_restore(w->cr);
+
 	expose(w, x - mx/2, y - my/2, mx, my);
 }
 
-static void report_frame(utouch_frame_handle fh,
-			 const struct utouch_frame *frame,
+static void report_frame(const struct touch_info *touch_info,
 			 struct windata *w)
 {
 	int i;
 
-	for (i = 0; i < frame->num_active; i++)
-		output_touch(fh, w, frame->active[i]);
+	for (i = 0; i < touch_info->ntouches; i++)
+		if (touch_info->touches[i].active)
+			output_touch(touch_info, w, &touch_info->touches[i]);
 }
 
 static int init_window(struct windata *w)
@@ -253,23 +270,12 @@ static void term_window(struct windata *w)
 	XCloseDisplay(w->dsp);
 }
 
-static void set_screen_size_mtdev(utouch_frame_handle fh,
-				  struct windata *w,
+static void set_screen_size_mtdev(struct windata *w,
 				  XEvent *xev)
 {
-	struct utouch_surface *s = utouch_frame_get_surface(fh);
 	XConfigureEvent *cev = (XConfigureEvent *)xev;
 
-	s->mapped_min_x = 0;
-	s->mapped_min_y = 0;
-	s->mapped_max_x = DisplayWidth(w->dsp, w->screen);
-	s->mapped_max_y = DisplayHeight(w->dsp, w->screen);
-	s->mapped_max_pressure = 1;
-
 	if (cev && cev->width && cev->height) {
-		s->mapped_max_x = cev->width;
-		s->mapped_max_y = cev->height;
-
 		if (cev->width != w->width || cev->height != w->height)
 		{
 			cairo_destroy(w->cr_win);
@@ -286,9 +292,41 @@ static void set_screen_size_mtdev(utouch_frame_handle fh,
 	}
 }
 
-static void run_window_mtdev(utouch_frame_handle fh, struct mtdev *dev, int fd)
+static void handle_abs_event(struct input_event *ev, struct touch_info *touch_info)
 {
-	const struct utouch_frame *frame;
+	int slot;
+
+	slot = touch_info->current_slot;
+	switch(ev->code) {
+		case ABS_MT_TRACKING_ID:
+			if (slot == -1)
+				break;
+			touch_info->touches[slot].active = (ev->value != -1);
+			break;
+		case ABS_MT_SLOT:
+			touch_info->current_slot = ev->value;
+			slot = touch_info->current_slot;
+			break;
+	}
+	if (slot == -1)
+		return;
+
+	touch_info->touches[slot].data[ev->code] = ev->value;
+}
+
+static int handle_event(struct input_event *ev, struct touch_info *touch_info)
+{
+	if (ev->type == EV_SYN && ev->code == SYN_REPORT)
+		return 1;
+
+	if (ev->type == EV_ABS)
+		handle_abs_event(ev, touch_info);
+	return 0;
+}
+
+static void run_window_mtdev(struct touch_info *touch_info,
+			     struct mtdev *dev, int fd)
+{
 	struct input_event iev;
 	struct windata w;
 	XEvent xev;
@@ -296,33 +334,63 @@ static void run_window_mtdev(utouch_frame_handle fh, struct mtdev *dev, int fd)
 	if (init_window(&w))
 		return;
 
-	clear_screen(fh, &w);
+	clear_screen(touch_info, &w);
 
-	set_screen_size_mtdev(fh, &w, 0);
+	set_screen_size_mtdev(&w, 0);
 
 	while (1) {
 		while (!mtdev_idle(dev, fd, 100)) {
 			while (mtdev_get(dev, fd, &iev, 1) > 0) {
-				frame = utouch_frame_pump_mtdev(fh, &iev);
-				if (frame)
-					report_frame(fh, frame, &w);
+				if (handle_event(&iev, touch_info))
+					report_frame(touch_info, &w);
 			}
 		}
 		while (XPending(w.dsp)) {
 			XNextEvent(w.dsp, &xev);
 			if (xev.type == ConfigureNotify)
-				set_screen_size_mtdev(fh, &w, &xev);
+				set_screen_size_mtdev(&w, &xev);
 		}
 	}
 
 	term_window(&w);
 }
 
+static int is_mt_device(const struct evemu_device *dev)
+{
+	return evemu_has_event(dev, EV_ABS, ABS_MT_POSITION_X) &&
+	       evemu_has_event(dev, EV_ABS, ABS_MT_POSITION_Y);
+}
+
+static void init_touches(const struct evemu_device *dev,
+			 struct touch_info *t, int ntouches)
+{
+	int i;
+
+	t->ntouches = ntouches;
+	t->current_slot = -1;
+
+	t->minx = evemu_get_abs_minimum(dev, ABS_MT_POSITION_X);
+	t->maxx = evemu_get_abs_maximum(dev, ABS_MT_POSITION_X);
+	t->miny = evemu_get_abs_minimum(dev, ABS_MT_POSITION_Y);
+	t->maxy = evemu_get_abs_maximum(dev, ABS_MT_POSITION_Y);
+
+	t->has_pressure = evemu_has_event(dev, EV_ABS, ABS_MT_PRESSURE);
+	t->has_touch_major = evemu_has_event(dev, EV_ABS, ABS_MT_TOUCH_MAJOR);
+	t->has_touch_minor = evemu_has_event(dev, EV_ABS, ABS_MT_TOUCH_MINOR);
+
+	for (i = 0; i < t->ntouches; i++) {
+		t->touches[i].active = 0;
+		memset(t->touches[i].data, 0, sizeof(t->touches[i].data));
+		t->touches[i].data[ABS_MT_TRACKING_ID] = -1;
+		t->touches[i].data[ABS_MT_SLOT] = -1;
+	}
+}
+
 static int run_mtdev(const char *name)
 {
 	struct evemu_device *evemu;
 	struct mtdev *mtdev;
-	utouch_frame_handle fh;
+	struct touch_info t;
 	int fd;
 
 	fd = open(name, O_RDONLY | O_NONBLOCK);
@@ -343,7 +411,8 @@ static int run_mtdev(const char *name)
 		error("could not describe device\n");
 		return -1;
 	}
-	if (!utouch_frame_is_supported_mtdev(evemu)) {
+
+	if (!is_mt_device(evemu)) {
 		error("unsupported device\n");
 		error("Is this a multitouch device?\n");
 		return -1;
@@ -353,15 +422,11 @@ static int run_mtdev(const char *name)
 		error("could not open mtdev\n");
 		return -1;
 	}
-	fh = utouch_frame_new_engine(100, 32, 100);
-	if (!fh || utouch_frame_init_mtdev(fh, evemu)) {
-		error("could not init frame\n");
-		return -1;
-	}
 
-	run_window_mtdev(fh, mtdev, fd);
+	init_touches(evemu, &t, DIM_TOUCH);
 
-	utouch_frame_delete_engine(fh);
+	run_window_mtdev(&t, mtdev, fd);
+
 	mtdev_close_delete(mtdev);
 	evemu_delete(evemu);
 
@@ -370,114 +435,6 @@ static int run_mtdev(const char *name)
 
 	return 0;
 }
-
-#if HAVE_XI22
-static void handle_event_xi2(struct windata *w,
-			     utouch_frame_handle fh,
-			     XEvent *ev)
-{
-	XConfigureEvent *cev = (XConfigureEvent *)ev;
-	XGenericEventCookie *gev = &ev->xcookie;
-	const struct utouch_frame *frame;
-
-	switch(ev->type) {
-	case ConfigureNotify:
-		if (cev->window == XDefaultRootWindow(cev->display)) {
-			utouch_frame_configure_xi2(fh, cev);
-		} else {
-			w->off_x = cev->x;
-			w->off_y = cev->y;
-		}
-		break;
-	case GenericEvent:
-		if (!XGetEventData(w->dsp, gev))
-			break;
-		if (gev->type == GenericEvent && gev->extension == opcode) {
-			frame = utouch_frame_pump_xi2(fh, gev->data);
-			if (frame)
-				report_frame(fh, frame, w);
-		}
-		XFreeEventData(w->dsp, gev);
-		break;
-	}
-}
-
-static void run_window_xi2(struct windata *w,
-			   utouch_frame_handle fh,
-			   XIDeviceInfo *dev)
-{
-	const struct utouch_frame *frame;
-	XIEventMask mask;
-
-	fprintf(stderr, "xi2 running\n");
-
-	XSelectInput(w->dsp, w->win, StructureNotifyMask);
-	XSelectInput(w->dsp, XDefaultRootWindow(w->dsp), StructureNotifyMask);
-
-	mask.deviceid = dev->deviceid;
-	mask.mask_len = XIMaskLen(XI_LASTEVENT);
-	mask.mask = calloc(mask.mask_len, sizeof(char));
-
-	XISetMask(mask.mask, XI_PropertyEvent);
-	XISetMask(mask.mask, XI_TouchBegin);
-	XISetMask(mask.mask, XI_TouchUpdate);
-	XISetMask(mask.mask, XI_TouchEnd);
-	XISelectEvents(w->dsp, w->win, &mask, 1);
-
-	while (1) {
-		XEvent ev;
-		XNextEvent(w->dsp, &ev);
-		handle_event_xi2(w, fh, &ev);
-	}
-}
-
-static int run_xi2(int id)
-{
-	struct windata w;
-	XIDeviceInfo *info, *dev;
-	utouch_frame_handle fh;
-	int ndevice;
-	int i;
-
-	if (init_window(&w)) {
-		fprintf(stderr, "error: could not init window\n");
-		return -1;
-	}
-
-	info = XIQueryDevice(w.dsp, XIAllDevices, &ndevice);
-	dev = 0;
-	for (i = 0; i < ndevice; i++)
-		if (info[i].deviceid == id)
-			dev = &info[i];
-	if (!dev)
-		return -1;
-
-	if (!utouch_frame_is_supported_xi2(w.dsp, dev)) {
-		fprintf(stderr, "error: unsupported device\n");
-		return -1;
-	}
-
-	fh = utouch_frame_new_engine(100, 32, 100);
-	if (!fh || utouch_frame_init_xi2(fh, w.dsp, dev)) {
-		fprintf(stderr, "error: could not init frame\n");
-		return -1;
-	}
-
-	run_window_xi2(&w, fh, dev);
-
-	utouch_frame_delete_engine(fh);
-	XIFreeDeviceInfo(info);
-	term_window(&w);
-
-	return 0;
-}
-#else
-static int run_xi2(int id)
-{
-	error("XI2.2 not supported\n");
-	return 0;
-}
-#endif
 
 #define DEV_INPUT_EVENT "/dev/input"
 #define EVENT_DEV_NAME "event"
@@ -531,7 +488,7 @@ static char* scan_devices(void)
 
 int main(int argc, char *argv[])
 {
-	int id = 0, ret;
+	int ret;
 	char *device = NULL;
 
 	if (argc < 2) {
@@ -542,15 +499,9 @@ int main(int argc, char *argv[])
 		    return 1;
 		}
 	} else
-	{
-	    id = atoi(argv[1]);
 	    device = strdup(argv[1]);
-	}
 
-	if (id)
-		ret = run_xi2(id);
-	else
-		ret = run_mtdev(device);
+	ret = run_mtdev(device);
 
 	free(device);
 
