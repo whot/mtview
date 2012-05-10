@@ -40,7 +40,7 @@
 #include <cairo.h>
 #include <cairo-xlib.h>
 
-#define DEF_WIDTH 200
+#define DEFAULT_WIDTH 200
 #define DEFAULT_WIDTH_MULTIPLIER 5 /* if no major/minor give the actual size */
 
 #define DIM_TOUCH 32
@@ -169,8 +169,8 @@ static void output_touch(const struct touch_info *touch_info,
 		angle = t->data[ABS_MT_ORIENTATION];
 	}
 	if (major == 0 && minor == 0) {
-		major = DEF_WIDTH * dy;
-		minor = DEF_WIDTH * dx;
+		major = DEFAULT_WIDTH * dy;
+		minor = DEFAULT_WIDTH * dx;
 	}
 
 	float ac = fabs(cos(angle));
