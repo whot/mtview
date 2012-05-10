@@ -40,7 +40,7 @@
 #include <cairo.h>
 #include <cairo-xlib.h>
 
-#define DEF_WIDTH 0.05
+#define DEF_WIDTH 200
 #define DEFAULT_WIDTH_MULTIPLIER 5 /* if no major/minor give the actual size */
 
 #define DIM_TOUCH 32
