@@ -25,7 +25,7 @@ AC_PROG_INSTALL
 LT_LIB_M
 
 PKG_CHECK_MODULES([MTDEV], [mtdev >= 1.1])
-PKG_CHECK_MODULES([EVEMU], [utouch-evemu >= 1.0])
+PKG_CHECK_MODULES([EVEMU], [utouch-evemu >= 1.0.9])
 PKG_CHECK_MODULES([X11], [x11])
 PKG_CHECK_MODULES([CAIRO], [cairo])
 

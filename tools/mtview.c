@@ -368,7 +368,7 @@ static void init_touches(const struct evemu_device *dev,
 	int i;
 
 	t->ntouches = ntouches;
-	t->current_slot = -1;
+	t->current_slot = evemu_get_abs_current_value(dev, ABS_MT_SLOT);
 
 	t->minx = evemu_get_abs_minimum(dev, ABS_MT_POSITION_X);
 	t->maxx = evemu_get_abs_maximum(dev, ABS_MT_POSITION_X);
