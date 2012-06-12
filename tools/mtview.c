@@ -368,7 +368,13 @@ static void init_touches(const struct evemu_device *dev,
 	int i;
 
 	t->ntouches = ntouches;
+#if EVEMU_HAVE_GET_ABS_CURRENT_VALUE
 	t->current_slot = evemu_get_abs_current_value(dev, ABS_MT_SLOT);
+#else
+	t->current_slot = -1;
+	msg("Cannot get current slot value from evemu.\n"
+	    "You may not see touchpoints until two or more touchpoints are triggered\n");
+#endif
 
 	t->minx = evemu_get_abs_minimum(dev, ABS_MT_POSITION_X);
 	t->maxx = evemu_get_abs_maximum(dev, ABS_MT_POSITION_X);
