@@ -332,8 +332,10 @@ static void run_window_mtdev(struct touch_info *touch_info,
 	struct windata w;
 	XEvent xev;
 
-	if (init_window(&w))
+	if (init_window(&w)) {
+		error("Failed to open window.\n");
 		return;
+	}
 
 	clear_screen(touch_info, &w);
 
