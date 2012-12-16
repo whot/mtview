@@ -431,11 +431,12 @@ static int run_mtdev(const char *name)
 	}
 
 	init_touches(evemu, &t, DIM_TOUCH);
+	evemu_delete(evemu);
+	evemu = NULL;
 
 	run_window_mtdev(&t, mtdev, fd);
 
 	mtdev_close_delete(mtdev);
-	evemu_delete(evemu);
 
 	ioctl(fd, EVIOCGRAB, 0);
 	close(fd);
