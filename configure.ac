@@ -10,7 +10,7 @@ AC_CONFIG_AUX_DIR([config-aux])
 
 # Initialize Automake
 AM_INIT_AUTOMAKE([foreign no-dist-gzip dist-bzip2])
-AM_MAINTAINER_MODE
+AM_MAINTAINER_MODE([enable])
 
 LIB_VERSION=1:0:0
 AC_SUBST([LIB_VERSION])
