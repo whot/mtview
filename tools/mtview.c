@@ -295,6 +295,22 @@ static void set_screen_size_mtdev(struct windata *w,
 	}
 }
 
+static void handle_key_event(struct input_event *ev, struct touch_info *touch_info)
+{
+	int slot;
+
+	if (touch_info->has_mt)
+		return;
+
+	slot = touch_info->current_slot;
+
+	/* Switch of tool is new tracking ID, so we get a new-coloured
+	   circle. Exception is BTN_TOUCH, since that just indicates current
+	   tool touched surface */
+	if (ev->code >= BTN_DIGI && ev->code < BTN_WHEEL && ev->code != BTN_TOUCH)
+		touch_info->touches[slot].data[ABS_MT_TRACKING_ID] = ev->code;
+}
+
 static void handle_abs_event(struct input_event *ev, struct touch_info *touch_info)
 {
 	int slot;
@@ -334,6 +350,9 @@ static int handle_event(struct input_event *ev, struct touch_info *touch_info)
 
 	if (ev->type == EV_ABS)
 		handle_abs_event(ev, touch_info);
+	if (ev->type == EV_KEY)
+		handle_key_event(ev, touch_info);
+
 	return 0;
 }
 
