@@ -57,6 +57,7 @@ struct touch_data {
 };
 
 struct touch_info {
+	int has_mt;
 	int minx,
 	    maxx,
 	    miny,
@@ -313,6 +314,16 @@ static void handle_abs_event(struct input_event *ev, struct touch_info *touch_in
 	if (slot == -1)
 		return;
 
+	if (!touch_info->has_mt) {
+		switch(ev->code) {
+			case ABS_X: ev->code = ABS_MT_POSITION_X; break;
+			case ABS_Y: ev->code = ABS_MT_POSITION_Y; break;
+			case ABS_PRESSURE: ev->code = ABS_MT_PRESSURE; break;
+			default:
+				break;
+		}
+
+	}
 	touch_info->touches[slot].data[ev->code] = ev->value;
 }
 
@@ -365,11 +376,31 @@ static int is_mt_device(const struct evemu_device *dev)
 	       evemu_has_event(dev, EV_ABS, ABS_MT_POSITION_Y);
 }
 
+static void init_single_touch(const struct evemu_device *dev,
+			      struct touch_info *t)
+{
+	t->has_mt = 0;
+	t->ntouches = 1;
+	t->current_slot = 0;
+	t->minx = evemu_get_abs_minimum(dev, ABS_X);
+	t->maxx = evemu_get_abs_maximum(dev, ABS_X);
+	t->miny = evemu_get_abs_minimum(dev, ABS_Y);
+	t->maxy = evemu_get_abs_maximum(dev, ABS_Y);
+
+	t->has_pressure = evemu_has_event(dev, EV_ABS, ABS_PRESSURE);
+	t->has_touch_major = 0;
+	t->has_touch_minor = 0;
+
+	t->touches[0].active = 1;
+	memset(t->touches[0].data, 0, sizeof(t->touches[0].data));
+}
+
 static void init_touches(const struct evemu_device *dev,
 			 struct touch_info *t, int ntouches)
 {
 	int i;
 
+	t->has_mt = 1;
 	t->ntouches = ntouches;
 #if EVEMU_HAVE_GET_ABS_CURRENT_VALUE
 	t->current_slot = evemu_get_abs_current_value(dev, ABS_MT_SLOT);
@@ -422,18 +453,20 @@ static int run_mtdev(const char *name)
 		return -1;
 	}
 
-	if (!is_mt_device(evemu)) {
-		error("unsupported device\n");
-		error("Is this a multitouch device?\n");
-		return -1;
-	}
 	mtdev = mtdev_new_open(fd);
 	if (!mtdev) {
 		error("could not open mtdev\n");
 		return -1;
 	}
 
-	init_touches(evemu, &t, DIM_TOUCH);
+
+	if (is_mt_device(evemu))
+		init_touches(evemu, &t, DIM_TOUCH);
+	else {
+		msg("This a not a multitouch device\n");
+		init_single_touch(evemu, &t);
+	}
+
 	evemu_delete(evemu);
 	evemu = NULL;
 
