@@ -133,6 +133,7 @@ static void expose(struct windata *win, int x, int y, int w, int h)
 	cairo_set_source_surface(win->cr_win, win->surface, 0, 0);
 	cairo_rectangle(win->cr_win, x, y, w, h);
 	cairo_fill(win->cr_win);
+	XFlush(win->dsp);
 }
 
 static void clear_screen(struct touch_info *touch_info, struct windata *w)
