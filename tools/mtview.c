@@ -257,7 +257,7 @@ static int init_window(struct windata *w)
 
 	expose(w, 0, 0, w->width, w->height);
 
-	XSelectInput(w->dsp, w->win, StructureNotifyMask);
+	XSelectInput(w->dsp, w->win, StructureNotifyMask|ExposureMask);
 	XMapWindow(w->dsp, w->win);
 	XFlush(w->dsp);
 
@@ -565,7 +565,7 @@ static int scan_devices_xi2(void)
 		fprintf(stderr, "%d:	%s\n", dev->deviceid, dev->name);
 	}
 
-	fprintf(stderr, "Select the device id [2-%d]: ", ndevices);
+	fprintf(stderr, "Select the device id [2-%d]: ", ndevices + 2); /* VCP offset */
 	scanf("%d", &deviceid);
 
 	for (i = 0; i < ndevices; i++) {
@@ -583,6 +583,146 @@ out:
 	return deviceid;
 }
 
+
+static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
+	XIDeviceInfo *info;
+	int ndevices, i;
+
+	info = XIQueryDevice(dpy, deviceid, &ndevices);
+	if (!info || ndevices == 0) {
+		error("Failed to open device\n");
+		return -1;
+	}
+
+	for (i = 0; i < info->num_classes; i++) {
+		switch(info->classes[i]->type) {
+			case XITouchClass:
+				ti->has_mt = 1;
+				ti->has_pressure = 0;
+				ti->has_touch_major = 0;
+				ti->has_touch_minor = 0;
+				ti->ntouches = ((XITouchClassInfo*)info->classes[i])->num_touches;
+				break;
+			case XIValuatorClass:
+				{
+					XIValuatorClassInfo *vi = (XIValuatorClassInfo*)info->classes[i];
+					if (vi->number == 0) {
+						ti->minx = vi->min;
+						ti->maxx = vi->max;
+					} else if (vi->number == 1) {
+						ti->miny = vi->min;
+						ti->maxy = vi->max;
+					}
+				}
+				break;
+		}
+	}
+
+	for (i = 0; i < ti->ntouches; i++) {
+		ti->touches[i].active = 0;
+		memset(ti->touches[i].data, 0, sizeof(ti->touches[i].data));
+		ti->touches[i].data[ABS_MT_TRACKING_ID] = -1;
+		ti->touches[i].data[ABS_MT_SLOT] = -1;
+	}
+
+	return 0;
+}
+
+static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
+{
+	int i;
+	static int next_slot;
+	XIDeviceEvent *ev;
+	XGetEventData(dpy, &e->xcookie);
+
+	ev = e->xcookie.data;
+	if (ev->evtype != XI_TouchBegin &&
+	    ev->evtype != XI_TouchUpdate &&
+	    ev->evtype != XI_TouchEnd)
+		return;
+
+	for (i = 0; i < ti->ntouches; i++) {
+		if (!ti->touches[i].active)
+			continue;
+
+		if (ti->touches[i].data[ABS_MT_TRACKING_ID] == ev->detail)
+			break;
+	}
+
+	if (i == ti->ntouches) {
+		if (ev->evtype != XI_TouchBegin)
+			return;
+
+		for (i = 0; i < ti->ntouches; i++)
+			if (!ti->touches[i].active)
+				break;
+	}
+
+	/* store tracking ID in active */
+	ti->touches[i].active = (ev->evtype != XI_TouchEnd);
+	ti->touches[i].data[ABS_MT_POSITION_X] = ev->root_x;
+	ti->touches[i].data[ABS_MT_POSITION_Y] = ev->root_y;
+	ti->touches[i].data[ABS_MT_TRACKING_ID] = ev->detail;
+	if (ev->evtype == XI_TouchBegin)
+		ti->touches[i].data[ABS_MT_SLOT] = next_slot++;
+
+	XFreeEventData(dpy, &e->xcookie);
+}
+
+static int run_mtdev_xi2(int deviceid)
+{
+	struct windata w;
+	struct touch_info touch_info = {0};
+	XIEventMask mask;
+	unsigned char m[XIMaskLen(XI_LASTEVENT)] = {0};
+
+	if (init_window(&w)) {
+		error("Failed to open window.\n");
+		return 1;
+	}
+
+	if (init_device(w.dsp, deviceid, &touch_info))
+		return 1;
+
+	clear_screen(&touch_info, &w);
+
+	set_screen_size_mtdev(&w, 0);
+
+	mask.mask = m;
+	mask.deviceid = deviceid;
+	mask.mask_len = sizeof(m);
+	XISetMask(mask.mask, XI_TouchBegin);
+	XISetMask(mask.mask, XI_TouchUpdate);
+	XISetMask(mask.mask, XI_TouchEnd);
+	XISelectEvents(w.dsp, w.win, &mask, 1);
+
+	while(1) {
+		XEvent xev;
+		XNextEvent(w.dsp, &xev);
+		if (xev.type == ConfigureNotify) {
+			set_screen_size_mtdev(&w, &xev);
+		} else if (xev.type == Expose) {
+#if 0
+			/* FIXME: server bug? grab doesn't grab the next
+			   touchpoint?? */
+			if (XIGrabDevice(w.dsp, deviceid, w.win, CurrentTime, None,
+						GrabModeAsync, GrabModeAsync,
+						False, &mask) != Success) {
+				error("Failed to grab device\n");
+				return 1;
+			}
+#endif
+		}
+		else if (xev.type == GenericEvent) {
+			handle_xi2_event(w.dsp, &xev, &touch_info);
+			report_frame(&touch_info, &w);
+		}
+	}
+
+	term_window(&w);
+
+	return 0;
+}
 
 enum mode {
 	MODE_EVDEV,
