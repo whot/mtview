@@ -27,7 +27,7 @@ LT_LIB_M
 PKG_CHECK_MODULES([MTDEV], [mtdev >= 1.1])
 PKG_CHECK_MODULES([EVEMU], [evemu >= 1.0.10])
 
-PKG_CHECK_MODULES([X11], [x11])
+PKG_CHECK_MODULES([X11], [x11 xi])
 PKG_CHECK_MODULES([CAIRO], [cairo])
 
 AC_ARG_VAR([XMLTO], [Path to xmlto command])

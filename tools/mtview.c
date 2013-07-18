@@ -29,6 +29,7 @@
 #include <mtdev.h>
 #include <evemu.h>
 #include <X11/Xlib.h>
+#include <X11/extensions/XInput2.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <dirent.h>
@@ -39,6 +40,7 @@
 #include <math.h>
 #include <cairo.h>
 #include <cairo-xlib.h>
+#include <getopt.h>
 
 #define DEFAULT_WIDTH 200
 #define DEFAULT_WIDTH_MULTIPLIER 5 /* if no major/minor give the actual size */
@@ -543,24 +545,115 @@ static char* scan_devices(void)
 	return filename;
 }
 
+static int scan_devices_xi2(void)
+{
+	int major = 2, minor = 2;
+	Display *dpy = XOpenDisplay(NULL);
+	XIDeviceInfo *info;
+	int ndevices, i;
+	int deviceid = 0;
+
+	XIQueryVersion(dpy, &major, &minor);
+	if (major != 2 && minor < 2) {
+		printf("Unsupported XI2 version. Need 2.2 or newer, have %d.%d\n", major, minor);
+		goto out;
+	}
+
+	info = XIQueryDevice(dpy, XIAllDevices, &ndevices);
+	for (i = 0; i < ndevices; i++) {
+		XIDeviceInfo *dev = &info[i];
+		fprintf(stderr, "%d:	%s\n", dev->deviceid, dev->name);
+	}
+
+	fprintf(stderr, "Select the device id [2-%d]: ", ndevices);
+	scanf("%d", &deviceid);
+
+	for (i = 0; i < ndevices; i++) {
+		if (info[i].deviceid == deviceid) {
+			break;
+		}
+	}
+
+	if (i == ndevices)
+		deviceid = 0;
+
+	XIFreeDeviceInfo(info);
+out:
+	XCloseDisplay(dpy);
+	return deviceid;
+}
+
+
+enum mode {
+	MODE_EVDEV,
+	MODE_XI2,
+};
+
+static void usage(void) {
+	printf("%s [--mode=evdev|xi2] [device]\n", program_invocation_short_name);
+}
+
 int main(int argc, char *argv[])
 {
 	int ret;
 	char *device = NULL;
+	int deviceid = 0;
+	enum mode mode = MODE_EVDEV;
 
-	if (argc < 2) {
-		device = scan_devices();
-		if (!device)
-		{
+	while (1) {
+		static struct option long_options[] = {
+			{ "mode", required_argument, 0, 0 },
+			{ "help", no_argument, 0, 'h' },
+		};
+
+		int option_index = 0;
+		int c;
+
+		c = getopt_long(argc, argv, "h", long_options,
+				&option_index);
+		if (c == -1)
+			break;
+
+		switch(c) {
+			case 0:
+				if (strcmp(long_options[option_index].name, "mode") == 0 &&
+				    optarg && strcmp(optarg, "xi2") == 0)
+					mode = MODE_XI2;
+				break;
+			case 'h':
+				usage();
+				return 0;
+			default:
+				break;
+		}
+	}
+
+
+	if (mode == MODE_EVDEV) {
+		if (optind < argc)
+			device = strdup(argv[optind]);
+		else
+			device = scan_devices();
+
+		if (!device) {
 		    error("Failed to find a device.\n");
 		    return 1;
 		}
-	} else
-	    device = strdup(argv[1]);
 
-	ret = run_mtdev(device);
+		ret = run_mtdev(device);
+		free(device);
+	} else if (mode == MODE_XI2) {
+		if (optind < argc)
+			deviceid = atoi(argv[optind]);
+		else
+			deviceid = scan_devices_xi2();
 
-	free(device);
+		if (deviceid == 0) {
+		    error("Failed to find a device.\n");
+		    return 1;
+		}
+		ret = run_mtdev_xi2(deviceid);
+	}
 
 	return ret;
 }
