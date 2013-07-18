@@ -215,7 +215,7 @@ static int init_window(struct windata *w)
 	int event, err;
 	int i;
 
-	memset(w, 0, sizeof(w));
+	memset(w, 0, sizeof(*w));
 	for (i = 0; i < DIM_TOUCH; i++)
 		w->id[i] = -1;
 
