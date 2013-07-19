@@ -71,6 +71,11 @@ struct touch_info {
 	int ntouches;
 	struct touch_data touches[DIM_TOUCH];
 	int current_slot;
+
+	/* XI2 axis mapping */
+	int pressure_valuator;
+	int mt_major_valuator;
+	int mt_minor_valuator;
 };
 
 struct windata {
@@ -119,6 +124,11 @@ static void msg(const char *fmt, ...)
 static inline float max(float a, float b)
 {
 	return b > a ? b : a;
+}
+
+static inline float min(float a, float b)
+{
+	return b < a ? b : a;
 }
 
 static struct color new_color(struct windata *w)
@@ -587,12 +597,16 @@ out:
 static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
 	XIDeviceInfo *info;
 	int ndevices, i;
+	Atom pressure, mt_major, mt_minor;
 
 	info = XIQueryDevice(dpy, deviceid, &ndevices);
 	if (!info || ndevices == 0) {
 		error("Failed to open device\n");
 		return -1;
 	}
+	pressure = XInternAtom(dpy, "Abs Pressure", True);
+	mt_major = XInternAtom(dpy, "Abs MT Touch Major", True);
+	mt_minor = XInternAtom(dpy, "Abs MT Touch Minor", True);
 
 	for (i = 0; i < info->num_classes; i++) {
 		switch(info->classes[i]->type) {
@@ -613,6 +627,16 @@ static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
 						ti->miny = vi->min;
 						ti->maxy = vi->max;
 					}
+					if (vi->label == pressure) {
+						ti->has_pressure = 1;
+						ti->pressure_valuator = i;
+					} else if (vi->label == mt_major) {
+						ti->has_touch_major = 1;
+						ti->mt_major_valuator = i;
+					} else if (vi->label == mt_minor) {
+						ti->has_touch_minor = 1;
+						ti->mt_minor_valuator = i;
+					}
 				}
 				break;
 		}
@@ -630,7 +654,7 @@ static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
 
 static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 {
-	int i;
+	int i, max_axnum;
 	static int next_slot;
 	XIDeviceEvent *ev;
 	XGetEventData(dpy, &e->xcookie);
@@ -665,6 +689,26 @@ static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 	ti->touches[i].data[ABS_MT_TRACKING_ID] = ev->detail;
 	if (ev->evtype == XI_TouchBegin)
 		ti->touches[i].data[ABS_MT_SLOT] = next_slot++;
+
+	max_axnum = max(ti->pressure_valuator, max(ti->mt_minor_valuator, ti->mt_major_valuator));
+	max_axnum = min(max_axnum, ev->valuators.mask_len);
+
+	if ((ti->has_pressure || ti->has_touch_major || ti->has_touch_minor)) {
+		double *v = ev->valuators.values;
+		for (i = 0; i <= max_axnum; i++) {
+			if (!XIMaskIsSet(ev->valuators.mask, i))
+				continue;
+
+			if (i == ti->pressure_valuator)
+				ti->touches[i].data[ABS_MT_PRESSURE] = (int)*v;
+			else if (i == ti->mt_major_valuator)
+				ti->touches[i].data[ABS_MT_TOUCH_MAJOR] = (int)*v;
+			else if (i == ti->mt_minor_valuator)
+				ti->touches[i].data[ABS_MT_TOUCH_MINOR] = (int)*v;
+
+			v++;
+		}
+	}
 
 	XFreeEventData(dpy, &e->xcookie);
 }
