@@ -741,7 +741,6 @@ static int run_mtdev_xi2(int deviceid)
 	XISetMask(mask.mask, XI_TouchBegin);
 	XISetMask(mask.mask, XI_TouchUpdate);
 	XISetMask(mask.mask, XI_TouchEnd);
-	XISelectEvents(w.dsp, w.win, &mask, 1);
 
 	while(1) {
 		XEvent xev;
@@ -749,16 +748,15 @@ static int run_mtdev_xi2(int deviceid)
 		if (xev.type == ConfigureNotify) {
 			set_screen_size_mtdev(&w, &xev);
 		} else if (xev.type == Expose) {
-#if 0
-			/* FIXME: server bug? grab doesn't grab the next
-			   touchpoint?? */
-			if (XIGrabDevice(w.dsp, deviceid, w.win, CurrentTime, None,
+			static int grabbed = 0;
+			if (!grabbed &&
+			    XIGrabDevice(w.dsp, deviceid, w.win, CurrentTime, None,
 						GrabModeAsync, GrabModeAsync,
 						False, &mask) != Success) {
 				error("Failed to grab device\n");
 				return 1;
-			}
-#endif
+			} else
+				grabbed = 1;
 		}
 		else if (xev.type == GenericEvent) {
 			handle_xi2_event(w.dsp, &xev, &touch_info);
