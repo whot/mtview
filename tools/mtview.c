@@ -715,6 +715,7 @@ static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 
 static int run_mtdev_xi2(int deviceid)
 {
+	int major = 2, minor = 2;
 	struct windata w;
 	struct touch_info touch_info = {0};
 	XIEventMask mask;
@@ -724,6 +725,8 @@ static int run_mtdev_xi2(int deviceid)
 		error("Failed to open window.\n");
 		return 1;
 	}
+
+	XIQueryVersion(w.dsp, &major, &minor);
 
 	if (init_device(w.dsp, deviceid, &touch_info))
 		return 1;
