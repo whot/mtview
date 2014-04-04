@@ -64,6 +64,8 @@ struct touch_info {
 	    maxx,
 	    miny,
 	    maxy;
+	int has_x,
+	    has_y;
 	int has_pressure;
 	int has_touch_major,
 	    has_touch_minor;
@@ -73,6 +75,8 @@ struct touch_info {
 	int current_slot;
 
 	/* XI2 axis mapping */
+	int x_valuator;
+	int y_valuator;
 	int pressure_valuator;
 	int mt_major_valuator;
 	int mt_minor_valuator;
@@ -598,16 +602,28 @@ out:
 static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
 	XIDeviceInfo *info;
 	int ndevices, i;
-	Atom pressure, mt_major, mt_minor;
+	Atom xaxis, yaxis, pressure, mt_x, mt_y, mt_major, mt_minor;
 
 	info = XIQueryDevice(dpy, deviceid, &ndevices);
 	if (!info || ndevices == 0) {
 		error("Failed to open device\n");
 		return -1;
 	}
+	xaxis = XInternAtom(dpy, "Abs X", True);
+	yaxis = XInternAtom(dpy, "Abs Y", True);
 	pressure = XInternAtom(dpy, "Abs Pressure", True);
+	mt_x = XInternAtom(dpy, "Abs MT Position X", True);
+	mt_y = XInternAtom(dpy, "Abs MT Position Y", True);
 	mt_major = XInternAtom(dpy, "Abs MT Touch Major", True);
 	mt_minor = XInternAtom(dpy, "Abs MT Touch Minor", True);
+
+	xaxis = xaxis ? xaxis : -1;
+	yaxis = yaxis ? yaxis : -1;
+	pressure = pressure ? pressure : -1;
+	mt_x = mt_x ? mt_x : -1;
+	mt_y = mt_y ? mt_y : -1;
+	mt_major = mt_major ? mt_major : -1;
+	mt_minor = mt_minor ? mt_minor : -1;
 
 	for (i = 0; i < info->num_classes; i++) {
 		switch(info->classes[i]->type) {
@@ -621,14 +637,17 @@ static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
 			case XIValuatorClass:
 				{
 					XIValuatorClassInfo *vi = (XIValuatorClassInfo*)info->classes[i];
-					if (vi->number == 0) {
+					if (vi->number == 0 || vi->label == xaxis || vi->label == mt_x) {
+						ti->has_x = 1;
+						ti->x_valuator = vi->number;
 						ti->minx = vi->min;
 						ti->maxx = vi->max;
-					} else if (vi->number == 1) {
+					} else if (vi->number == 1 || vi->label == yaxis || vi->label == mt_y) {
+						ti->has_y = 1;
+						ti->y_valuator = vi->number;
 						ti->miny = vi->min;
 						ti->maxy = vi->max;
-					}
-					if (vi->label == pressure) {
+					} else if (vi->label == pressure) {
 						ti->has_pressure = 1;
 						ti->pressure_valuator = vi->number;
 					} else if (vi->label == mt_major) {
@@ -690,22 +709,24 @@ static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 
 	/* store tracking ID in active */
 	ti->touches[i].active = (ev->evtype != XI_TouchEnd);
-	ti->touches[i].data[ABS_MT_POSITION_X] = ev->root_x;
-	ti->touches[i].data[ABS_MT_POSITION_Y] = ev->root_y;
 	ti->touches[i].data[ABS_MT_TRACKING_ID] = ev->detail;
 	if (ev->evtype == XI_TouchBegin)
 		ti->touches[i].data[ABS_MT_SLOT] = next_slot++;
 
-	max_axnum = max(ti->pressure_valuator, max(ti->mt_minor_valuator, ti->mt_major_valuator));
+	max_axnum = max(ti->x_valuator, max(ti->y_valuator, max(ti->pressure_valuator, max(ti->mt_minor_valuator, ti->mt_major_valuator))));
 	max_axnum = min(max_axnum, ev->valuators.mask_len);
 
-	if ((ti->has_pressure || ti->has_touch_major || ti->has_touch_minor)) {
+	if ((ti->has_x || ti->has_y || ti->has_pressure || ti->has_touch_major || ti->has_touch_minor)) {
 		double *v = ev->valuators.values;
 		int j;
 		for (j = 0; j <= max_axnum; j++) {
 			if (!XIMaskIsSet(ev->valuators.mask, j))
 				continue;
-			if (j == ti->pressure_valuator)
+			if (j == ti->x_valuator)
+				ti->touches[i].data[ABS_MT_POSITION_X] = (int)*v;
+			else if (j == ti->y_valuator)
+				ti->touches[i].data[ABS_MT_POSITION_Y] = (int)*v;
+			else if (j == ti->pressure_valuator)
 				ti->touches[i].data[ABS_MT_PRESSURE] = (int)*v;
 			else if (j == ti->mt_major_valuator)
 				ti->touches[i].data[ABS_MT_TOUCH_MAJOR] = (int)*v;
@@ -714,6 +735,10 @@ static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 
 			v++;
 		}
+	}
+
+	if (!ti->has_x || !ti->has_y) {
+		error("Unable to find appropriate X or Y axis for device.\n");
 	}
 
 	XFreeEventData(dpy, &e->xcookie);
