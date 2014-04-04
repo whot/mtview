@@ -630,13 +630,13 @@ static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
 					}
 					if (vi->label == pressure) {
 						ti->has_pressure = 1;
-						ti->pressure_valuator = i;
+						ti->pressure_valuator = vi->number;
 					} else if (vi->label == mt_major) {
 						ti->has_touch_major = 1;
-						ti->mt_major_valuator = i;
+						ti->mt_major_valuator = vi->number;
 					} else if (vi->label == mt_minor) {
 						ti->has_touch_minor = 1;
-						ti->mt_minor_valuator = i;
+						ti->mt_minor_valuator = vi->number;
 					}
 				}
 				break;
