@@ -701,15 +701,15 @@ static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 
 	if ((ti->has_pressure || ti->has_touch_major || ti->has_touch_minor)) {
 		double *v = ev->valuators.values;
-		for (i = 0; i <= max_axnum; i++) {
-			if (!XIMaskIsSet(ev->valuators.mask, i))
+		int j;
+		for (j = 0; j <= max_axnum; j++) {
+			if (!XIMaskIsSet(ev->valuators.mask, j))
 				continue;
-
-			if (i == ti->pressure_valuator)
+			if (j == ti->pressure_valuator)
 				ti->touches[i].data[ABS_MT_PRESSURE] = (int)*v;
-			else if (i == ti->mt_major_valuator)
+			else if (j == ti->mt_major_valuator)
 				ti->touches[i].data[ABS_MT_TOUCH_MAJOR] = (int)*v;
-			else if (i == ti->mt_minor_valuator)
+			else if (j == ti->mt_minor_valuator)
 				ti->touches[i].data[ABS_MT_TOUCH_MINOR] = (int)*v;
 
 			v++;
