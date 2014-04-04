@@ -164,8 +164,9 @@ static void clear_screen(struct touch_info *touch_info, struct windata *w)
 
 static void output_touch(const struct touch_info *touch_info,
 			 struct windata *w,
-			 const struct touch_data *t)
+			 const int i)
 {
+	const struct touch_data *t = &touch_info->touches[i];
 	float dx = 1.0 * w->width/(touch_info->maxx - touch_info->minx);
 	float dy = 1.0 * w->height/(touch_info->maxy - touch_info->miny);
 	float x = (t->data[ABS_MT_POSITION_X] - touch_info->minx) * dx,
@@ -192,15 +193,15 @@ static void output_touch(const struct touch_info *touch_info,
 	float mx = max(minor * ac, major * as);
 	float my = max(major * ac, minor * as);
 
-	if (w->id[t->data[ABS_MT_SLOT]] != t->data[ABS_MT_TRACKING_ID]) {
-		w->id[t->data[ABS_MT_SLOT]] = t->data[ABS_MT_TRACKING_ID];
-		w->color[t->data[ABS_MT_SLOT]] = new_color(w);
+	if (w->id[i] != t->data[ABS_MT_TRACKING_ID]) {
+		w->id[i] = t->data[ABS_MT_TRACKING_ID];
+		w->color[i] = new_color(w);
 	}
 
 	cairo_set_source_rgb(w->cr,
-			     w->color[t->data[ABS_MT_SLOT]].r,
-			     w->color[t->data[ABS_MT_SLOT]].g,
-			     w->color[t->data[ABS_MT_SLOT]].b);
+			     w->color[i].r,
+			     w->color[i].g,
+			     w->color[i].b);
 	/* cairo ellipsis */
 	cairo_save(w->cr);
 	cairo_translate(w->cr, x, y);
@@ -219,7 +220,7 @@ static void report_frame(const struct touch_info *touch_info,
 
 	for (i = 0; i < touch_info->ntouches; i++)
 		if (touch_info->touches[i].active)
-			output_touch(touch_info, w, &touch_info->touches[i]);
+			output_touch(touch_info, w, i);
 }
 
 static int init_window(struct windata *w)
