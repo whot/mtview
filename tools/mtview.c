@@ -181,9 +181,11 @@ static void output_touch(const struct touch_info *touch_info,
 		minor = DEFAULT_WIDTH_MULTIPLIER * t->data[ABS_MT_PRESSURE] * dx;
 		angle = 0;
 	}
-	if (touch_info->has_touch_major && touch_info->has_touch_minor) {
-		major = t->data[ABS_MT_TOUCH_MAJOR];
-		minor = t->data[ABS_MT_TOUCH_MINOR];
+
+	if (touch_info->has_touch_major) {
+		major = minor = t->data[ABS_MT_TOUCH_MAJOR];
+		if (touch_info->has_touch_minor)
+			minor = t->data[ABS_MT_TOUCH_MINOR];
 		angle = t->data[ABS_MT_ORIENTATION];
 	}
 	if (major == 0 && minor == 0) {
