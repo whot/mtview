@@ -186,14 +186,14 @@ static void output_touch(const struct touch_info *touch_info,
 		angle = t->data[ABS_MT_ORIENTATION];
 	}
 	if (major == 0 && minor == 0) {
-		major = DEFAULT_WIDTH * dy;
-		minor = DEFAULT_WIDTH * dx;
+		major = DEFAULT_WIDTH;
+		minor = DEFAULT_WIDTH;
 	}
 
 	float ac = fabs(cos(angle));
 	float as = fabs(sin(angle));
-	float mx = max(minor * ac, major * as);
-	float my = max(major * ac, minor * as);
+	float mx = max(minor * ac, major * as) * dx;
+	float my = max(major * ac, minor * as) * dy;
 
 	if (w->id[t->data[ABS_MT_SLOT]] != t->data[ABS_MT_TRACKING_ID]) {
 		w->id[t->data[ABS_MT_SLOT]] = t->data[ABS_MT_TRACKING_ID];
