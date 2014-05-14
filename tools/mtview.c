@@ -73,6 +73,8 @@ struct touch_info {
 	int current_slot;
 
 	/* XI2 axis mapping */
+	int x_valuator;
+	int y_valuator;
 	int pressure_valuator;
 	int mt_major_valuator;
 	int mt_minor_valuator;
@@ -627,9 +629,11 @@ static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
 					if (vi->number == 0) {
 						ti->minx = vi->min;
 						ti->maxx = vi->max;
+						ti->x_valuator = vi->number;
 					} else if (vi->number == 1) {
 						ti->miny = vi->min;
 						ti->maxy = vi->max;
+						ti->y_valuator = vi->number;
 					}
 					if (vi->label == pressure) {
 						ti->has_pressure = 1;
@@ -663,7 +667,8 @@ static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
 
 static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 {
-	int i, max_axnum;
+	int i;
+	double *v;
 	struct touch_data *touch = NULL;
 	XIDeviceEvent *ev;
 	XGetEventData(dpy, &e->xcookie);
@@ -705,23 +710,22 @@ static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 	touch->data[ABS_MT_POSITION_Y] = ev->root_y;
 	touch->data[ABS_MT_TRACKING_ID] = ev->detail;
 
-	max_axnum = max(ti->pressure_valuator, max(ti->mt_minor_valuator, ti->mt_major_valuator));
-	max_axnum = min(max_axnum, ev->valuators.mask_len);
+	v = ev->valuators.values;
+	for (i = 0; i <= ev->valuators.mask_len; i++) {
+		if (!XIMaskIsSet(ev->valuators.mask, i))
+			continue;
+		if (i == ti->x_valuator)
+			touch->data[ABS_MT_POSITION_X] = (int)*v;
+		else if (i == ti->y_valuator)
+			touch->data[ABS_MT_POSITION_Y] = (int)*v;
+		else if (i == ti->pressure_valuator)
+			touch->data[ABS_MT_PRESSURE] = (int)*v;
+		else if (i == ti->mt_major_valuator)
+			touch->data[ABS_MT_TOUCH_MAJOR] = (int)*v;
+		else if (i == ti->mt_minor_valuator)
+			touch->data[ABS_MT_TOUCH_MINOR] = (int)*v;
 
-	if ((ti->has_pressure || ti->has_touch_major || ti->has_touch_minor)) {
-		double *v = ev->valuators.values;
-		for (i = 0; i <= max_axnum; i++) {
-			if (!XIMaskIsSet(ev->valuators.mask, i))
-				continue;
-			if (i == ti->pressure_valuator)
-				touch->data[ABS_MT_PRESSURE] = (int)*v;
-			else if (i == ti->mt_major_valuator)
-				touch->data[ABS_MT_TOUCH_MAJOR] = (int)*v;
-			else if (i == ti->mt_minor_valuator)
-				touch->data[ABS_MT_TOUCH_MINOR] = (int)*v;
-
-			v++;
-		}
+		v++;
 	}
 
 	XFreeEventData(dpy, &e->xcookie);
