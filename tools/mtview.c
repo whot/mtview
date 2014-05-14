@@ -655,7 +655,6 @@ static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
 static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 {
 	int i, max_axnum;
-	static int next_slot;
 	XIDeviceEvent *ev;
 	XGetEventData(dpy, &e->xcookie);
 
@@ -688,7 +687,7 @@ static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 	ti->touches[i].data[ABS_MT_POSITION_Y] = ev->root_y;
 	ti->touches[i].data[ABS_MT_TRACKING_ID] = ev->detail;
 	if (ev->evtype == XI_TouchBegin)
-		ti->touches[i].data[ABS_MT_SLOT] = next_slot++;
+		ti->touches[i].data[ABS_MT_SLOT] = i;
 
 	max_axnum = max(ti->pressure_valuator, max(ti->mt_minor_valuator, ti->mt_major_valuator));
 	max_axnum = min(max_axnum, ev->valuators.mask_len);
