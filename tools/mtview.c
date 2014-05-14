@@ -642,6 +642,11 @@ static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
 		}
 	}
 
+	if (ti->ntouches > DIM_TOUCH) {
+		msg("Device claims to support %d touches. Clamping to %d.\n", ti->ntouches, DIM_TOUCH);
+		ti->ntouches = DIM_TOUCH;
+	}
+
 	for (i = 0; i < ti->ntouches; i++) {
 		ti->touches[i].active = 0;
 		memset(ti->touches[i].data, 0, sizeof(ti->touches[i].data));
