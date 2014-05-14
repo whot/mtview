@@ -664,6 +664,7 @@ static int init_device(Display *dpy, int deviceid, struct touch_info *ti) {
 static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 {
 	int i, max_axnum;
+	struct touch_data *touch = NULL;
 	XIDeviceEvent *ev;
 	XGetEventData(dpy, &e->xcookie);
 
@@ -673,35 +674,36 @@ static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 	    ev->evtype != XI_TouchEnd)
 		return;
 
-	for (i = 0; i < ti->ntouches; i++) {
+	for (i = 0; i < ti->ntouches && touch == NULL; i++) {
 		if (!ti->touches[i].active)
 			continue;
 
 		if (ti->touches[i].data[ABS_MT_TRACKING_ID] == ev->detail)
-			break;
+			touch = &ti->touches[i];
 	}
 
-	if (i == ti->ntouches) {
+	if (touch == NULL) {
 		if (ev->evtype != XI_TouchBegin)
 			return;
 
-		for (i = 0; i < ti->ntouches; i++)
-			if (!ti->touches[i].active)
-				break;
+		for (i = 0; i < ti->ntouches && touch == NULL; i++) {
+			if (!ti->touches[i].active) {
+				touch = &ti->touches[i];
+				touch->data[ABS_MT_SLOT] = i;
+			}
+		}
 	}
 
-	if (i == ti->ntouches) {
+	if (touch == NULL) {
 		msg("Too many simultaneous touches. Ignoring most-recent new contact.\n");
 		return;
 	}
 
 	/* store tracking ID in active */
-	ti->touches[i].active = (ev->evtype != XI_TouchEnd);
-	ti->touches[i].data[ABS_MT_POSITION_X] = ev->root_x;
-	ti->touches[i].data[ABS_MT_POSITION_Y] = ev->root_y;
-	ti->touches[i].data[ABS_MT_TRACKING_ID] = ev->detail;
-	if (ev->evtype == XI_TouchBegin)
-		ti->touches[i].data[ABS_MT_SLOT] = i;
+	touch->active = (ev->evtype != XI_TouchEnd);
+	touch->data[ABS_MT_POSITION_X] = ev->root_x;
+	touch->data[ABS_MT_POSITION_Y] = ev->root_y;
+	touch->data[ABS_MT_TRACKING_ID] = ev->detail;
 
 	max_axnum = max(ti->pressure_valuator, max(ti->mt_minor_valuator, ti->mt_major_valuator));
 	max_axnum = min(max_axnum, ev->valuators.mask_len);
@@ -711,13 +713,12 @@ static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 		for (i = 0; i <= max_axnum; i++) {
 			if (!XIMaskIsSet(ev->valuators.mask, i))
 				continue;
-
 			if (i == ti->pressure_valuator)
-				ti->touches[i].data[ABS_MT_PRESSURE] = (int)*v;
+				touch->data[ABS_MT_PRESSURE] = (int)*v;
 			else if (i == ti->mt_major_valuator)
-				ti->touches[i].data[ABS_MT_TOUCH_MAJOR] = (int)*v;
+				touch->data[ABS_MT_TOUCH_MAJOR] = (int)*v;
 			else if (i == ti->mt_minor_valuator)
-				ti->touches[i].data[ABS_MT_TOUCH_MINOR] = (int)*v;
+				touch->data[ABS_MT_TOUCH_MINOR] = (int)*v;
 
 			v++;
 		}
