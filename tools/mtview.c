@@ -335,8 +335,12 @@ static void handle_abs_event(struct input_event *ev, struct touch_info *touch_in
 			touch_info->touches[slot].active = (ev->value != -1);
 			break;
 		case ABS_MT_SLOT:
-			touch_info->current_slot = ev->value;
-			slot = touch_info->current_slot;
+			slot = ev->value;
+			if (ev->value >= DIM_TOUCH) {
+				msg("Too many simultaneous touches.\n");
+				slot = -1;
+			}
+			touch_info->current_slot = slot;
 			break;
 	}
 	if (slot == -1)
@@ -684,6 +688,11 @@ static void handle_xi2_event(Display *dpy, XEvent *e, struct touch_info *ti)
 		for (i = 0; i < ti->ntouches; i++)
 			if (!ti->touches[i].active)
 				break;
+	}
+
+	if (i == ti->ntouches) {
+		msg("Too many simultaneous touches. Ignoring most-recent new contact.\n");
+		return;
 	}
 
 	/* store tracking ID in active */
