@@ -41,6 +41,7 @@
 #include <cairo.h>
 #include <cairo-xlib.h>
 #include <getopt.h>
+#include <poll.h>
 
 #define DEFAULT_WIDTH 200
 #define DEFAULT_WIDTH_MULTIPLIER 5 /* if no major/minor give the actual size */
@@ -380,6 +381,7 @@ static void run_window_mtdev(struct touch_info *touch_info,
 	struct input_event iev;
 	struct windata w;
 	XEvent xev;
+	struct pollfd fds[2];
 
 	if (init_window(&w)) {
 		error("Failed to open window.\n");
@@ -390,7 +392,14 @@ static void run_window_mtdev(struct touch_info *touch_info,
 
 	set_screen_size_mtdev(&w, 0);
 
-	while (1) {
+	fds[0].fd = fd;
+	fds[0].events = POLLIN;
+	fds[0].revents = 0;
+	fds[1].fd = ConnectionNumber(w.dsp);
+	fds[1].events = POLLIN;
+	fds[1].revents = 0;
+
+	while (poll(fds, 2, 0) != -1) {
 		while (!mtdev_idle(dev, fd, 100)) {
 			while (mtdev_get(dev, fd, &iev, 1) > 0) {
 				if (handle_event(&iev, touch_info))
