@@ -399,7 +399,7 @@ static void run_window_mtdev(struct touch_info *touch_info,
 	fds[1].events = POLLIN;
 	fds[1].revents = 0;
 
-	while (poll(fds, 2, 0) != -1) {
+	while (poll(fds, 2, -1) != -1) {
 		while (!mtdev_idle(dev, fd, 100)) {
 			while (mtdev_get(dev, fd, &iev, 1) > 0) {
 				if (handle_event(&iev, touch_info))
