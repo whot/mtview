@@ -27,10 +27,11 @@
 
 #include <linux/input.h>
 #include <mtdev.h>
-#include <evemu.h>
+#include <libevdev/libevdev.h>
 #include <X11/Xlib.h>
 #include <X11/extensions/XInput2.h>
 #include <stdio.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <stdarg.h>
@@ -419,24 +420,24 @@ static void run_window_mtdev(struct touch_info *touch_info,
 	term_window(&w);
 }
 
-static int is_mt_device(const struct evemu_device *dev)
+static int is_mt_device(const struct libevdev *dev)
 {
-	return evemu_has_event(dev, EV_ABS, ABS_MT_POSITION_X) &&
-	       evemu_has_event(dev, EV_ABS, ABS_MT_POSITION_Y);
+	return libevdev_has_event_code(dev, EV_ABS, ABS_MT_POSITION_X) &&
+	       libevdev_has_event_code(dev, EV_ABS, ABS_MT_POSITION_Y);
 }
 
-static void init_single_touch(const struct evemu_device *dev,
+static void init_single_touch(const struct libevdev *dev,
 			      struct touch_info *t)
 {
 	t->has_mt = 0;
 	t->ntouches = 1;
 	t->current_slot = 0;
-	t->minx = evemu_get_abs_minimum(dev, ABS_X);
-	t->maxx = evemu_get_abs_maximum(dev, ABS_X);
-	t->miny = evemu_get_abs_minimum(dev, ABS_Y);
-	t->maxy = evemu_get_abs_maximum(dev, ABS_Y);
+	t->minx = libevdev_get_abs_minimum(dev, ABS_X);
+	t->maxx = libevdev_get_abs_maximum(dev, ABS_X);
+	t->miny = libevdev_get_abs_minimum(dev, ABS_Y);
+	t->maxy = libevdev_get_abs_maximum(dev, ABS_Y);
 
-	t->has_pressure = evemu_has_event(dev, EV_ABS, ABS_PRESSURE);
+	t->has_pressure = libevdev_has_event_code(dev, EV_ABS, ABS_PRESSURE);
 	t->has_touch_major = 0;
 	t->has_touch_minor = 0;
 
@@ -444,23 +445,23 @@ static void init_single_touch(const struct evemu_device *dev,
 	memset(t->touches[0].data, 0, sizeof(t->touches[0].data));
 }
 
-static void init_touches(const struct evemu_device *dev,
+static void init_touches(const struct libevdev *dev,
 			 struct touch_info *t, int ntouches)
 {
 	int i;
 
 	t->has_mt = 1;
 	t->ntouches = ntouches;
-	t->current_slot = evemu_get_abs_current_value(dev, ABS_MT_SLOT);
+	t->current_slot = libevdev_get_current_slot(dev);
 
-	t->minx = evemu_get_abs_minimum(dev, ABS_MT_POSITION_X);
-	t->maxx = evemu_get_abs_maximum(dev, ABS_MT_POSITION_X);
-	t->miny = evemu_get_abs_minimum(dev, ABS_MT_POSITION_Y);
-	t->maxy = evemu_get_abs_maximum(dev, ABS_MT_POSITION_Y);
+	t->minx = libevdev_get_abs_minimum(dev, ABS_MT_POSITION_X);
+	t->maxx = libevdev_get_abs_maximum(dev, ABS_MT_POSITION_X);
+	t->miny = libevdev_get_abs_minimum(dev, ABS_MT_POSITION_Y);
+	t->maxy = libevdev_get_abs_maximum(dev, ABS_MT_POSITION_Y);
 
-	t->has_pressure = evemu_has_event(dev, EV_ABS, ABS_MT_PRESSURE);
-	t->has_touch_major = evemu_has_event(dev, EV_ABS, ABS_MT_TOUCH_MAJOR);
-	t->has_touch_minor = evemu_has_event(dev, EV_ABS, ABS_MT_TOUCH_MINOR);
+	t->has_pressure = libevdev_has_event_code(dev, EV_ABS, ABS_MT_PRESSURE);
+	t->has_touch_major = libevdev_has_event_code(dev, EV_ABS, ABS_MT_TOUCH_MAJOR);
+	t->has_touch_minor = libevdev_has_event_code(dev, EV_ABS, ABS_MT_TOUCH_MINOR);
 
 	for (i = 0; i < t->ntouches; i++) {
 		t->touches[i].active = 0;
@@ -472,10 +473,10 @@ static void init_touches(const struct evemu_device *dev,
 
 static int run_mtdev(const char *name)
 {
-	struct evemu_device *evemu;
+	struct libevdev *evdev;
 	struct mtdev *mtdev;
 	struct touch_info t;
-	int fd;
+	int fd, rc;
 
 	fd = open(name, O_RDONLY | O_NONBLOCK);
 	if (fd < 0) {
@@ -490,9 +491,10 @@ static int run_mtdev(const char *name)
 		return -1;
 	}
 
-	evemu = evemu_new(0);
-	if (!evemu || evemu_extract(evemu, fd)) {
-		error("could not describe device\n");
+	rc = libevdev_new_from_fd(fd, &evdev);
+	if (rc != 0) {
+		error("could not describe device: %s\n",
+		      strerror(-rc));
 		return -1;
 	}
 
@@ -503,15 +505,15 @@ static int run_mtdev(const char *name)
 	}
 
 
-	if (is_mt_device(evemu))
-		init_touches(evemu, &t, DIM_TOUCH);
+	if (is_mt_device(evdev))
+		init_touches(evdev, &t, DIM_TOUCH);
 	else {
 		msg("This a not a multitouch device\n");
-		init_single_touch(evemu, &t);
+		init_single_touch(evdev, &t);
 	}
 
-	evemu_delete(evemu);
-	evemu = NULL;
+	libevdev_free(evdev);
+	evdev = NULL;
 
 	run_window_mtdev(&t, mtdev, fd);
 
