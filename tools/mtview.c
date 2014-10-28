@@ -446,12 +446,12 @@ static void init_single_touch(const struct libevdev *dev,
 }
 
 static void init_touches(const struct libevdev *dev,
-			 struct touch_info *t, int ntouches)
+			 struct touch_info *t)
 {
 	int i, code;
 
 	t->has_mt = 1;
-	t->ntouches = ntouches;
+	t->ntouches = min(libevdev_get_num_slots(dev), DIM_TOUCH);
 	t->current_slot = libevdev_get_current_slot(dev);
 
 	t->minx = libevdev_get_abs_minimum(dev, ABS_MT_POSITION_X);
@@ -513,7 +513,7 @@ static int run_mtdev(const char *name)
 
 
 	if (is_mt_device(evdev))
-		init_touches(evdev, &t, DIM_TOUCH);
+		init_touches(evdev, &t);
 	else {
 		msg("This a not a multitouch device\n");
 		init_single_touch(evdev, &t);
