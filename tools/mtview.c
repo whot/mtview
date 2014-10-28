@@ -44,6 +44,7 @@
 #include <poll.h>
 
 #define DEFAULT_WIDTH 200
+#define MIN_WIDTH 5
 #define DEFAULT_WIDTH_MULTIPLIER 5 /* if no major/minor give the actual size */
 
 #define DIM_TOUCH 32
@@ -192,8 +193,8 @@ static void output_touch(const struct touch_info *touch_info,
 
 	float ac = fabs(cos(angle));
 	float as = fabs(sin(angle));
-	float mx = max(minor * ac, major * as) * dx;
-	float my = max(major * ac, minor * as) * dy;
+	float mx = max(MIN_WIDTH, max(minor * ac, major * as) * dx);
+	float my = max(MIN_WIDTH, max(major * ac, minor * as) * dy);
 
 	if (w->id[t->data[ABS_MT_SLOT]] != t->data[ABS_MT_TRACKING_ID]) {
 		w->id[t->data[ABS_MT_SLOT]] = t->data[ABS_MT_TRACKING_ID];
