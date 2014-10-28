@@ -448,7 +448,7 @@ static void init_single_touch(const struct libevdev *dev,
 static void init_touches(const struct libevdev *dev,
 			 struct touch_info *t, int ntouches)
 {
-	int i;
+	int i, code;
 
 	t->has_mt = 1;
 	t->ntouches = ntouches;
@@ -468,6 +468,13 @@ static void init_touches(const struct libevdev *dev,
 		memset(t->touches[i].data, 0, sizeof(t->touches[i].data));
 		t->touches[i].data[ABS_MT_TRACKING_ID] = -1;
 		t->touches[i].data[ABS_MT_SLOT] = -1;
+
+		for (code = ABS_MT_SLOT + 1; code < ABS_CNT; code++) {
+			if (libevdev_has_event_code(dev, EV_ABS, code)) {
+				t->touches[i].data[code] = libevdev_get_slot_value(dev, i, code);
+			}
+		}
+
 	}
 }
 
