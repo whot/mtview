@@ -590,6 +590,11 @@ static int scan_devices_xi2(void)
 	int ndevices, i;
 	int deviceid = 0;
 
+	if (dpy == NULL) {
+		printf("Failed to open display\n");
+		return -1;
+	}
+
 	XIQueryVersion(dpy, &major, &minor);
 	if (major != 2 && minor < 2) {
 		printf("Unsupported XI2 version. Need 2.2 or newer, have %d.%d\n", major, minor);
