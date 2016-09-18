@@ -1,6 +1,6 @@
 SUBDIRS = tools man
 
-INCLUDES = $(top_srcdir)/include/
+AM_CPPFLAGS = $(top_srcdir)/include/
 
 .PHONY: ChangeLog INSTALL
 INSTALL:
